@@ -1,25 +1,36 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { supabase } from "@/supabaseClient";
 
 export default function JoinDebate() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Pre-fill code if coming from landing page join-by-code form
+  useEffect(() => {
+    const codeParam = searchParams.get("code");
+    if (codeParam && /^\d{1,4}$/.test(codeParam)) {
+      setCode(codeParam.slice(0, 4));
+    }
+  }, [searchParams]);
 
   const handleJoin = async () => {
     const trimmed = code.trim();
 
     if (!trimmed) {
-      setError("Please enter a debate code");
+      setError("Please enter a debate code.");
       return;
     }
 
     if (!/^\d{4}$/.test(trimmed)) {
-      setError("Debate code must be exactly 4 digits");
+      setError("Code must be exactly 4 digits.");
       return;
     }
 
@@ -36,7 +47,7 @@ export default function JoinDebate() {
       if (fetchError) throw fetchError;
 
       if (!data) {
-        setError("Debate not found. Check the code and try again.");
+        setError("No debate found with that code. Double-check and try again.");
         setLoading(false);
         return;
       }
@@ -47,84 +58,134 @@ export default function JoinDebate() {
         return;
       }
 
-      // NOTE: We intentionally do NOT block on status === "active" here.
-      // The socket server is the source of truth for room capacity and active state.
-      // Blocking here based on DB status causes false positives because the DB
-      // status field may not be kept in sync with in-memory socket state.
-      // The socket server will emit a join_error if the room is truly full or active.
-
       router.push(`/debate/${trimmed}/lobby`);
     } catch (err: any) {
-      setError(err.message || "Failed to look up debate");
+      setError(err.message || "Failed to look up debate.");
       setLoading(false);
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") handleJoin();
-  };
+  const digits = code.split("");
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-6">
-      <div className="max-w-md w-full">
-        <div className="bg-slate-700/50 backdrop-blur border border-slate-600 rounded-lg p-8">
-          <h1 className="text-3xl font-bold text-white mb-2">Join a Debate</h1>
-          <p className="text-slate-300 mb-8">
-            Enter the 4-digit code shared by your opponent.
+    <div className="min-h-screen bg-[#0d1117] text-white flex flex-col">
+
+      {/* Nav */}
+      <nav className="sticky top-0 z-40 bg-[#0d1117]/80 backdrop-blur-md border-b border-white/[0.06]">
+        <div className="max-w-md mx-auto px-6 h-16 flex items-center gap-3">
+          <Link
+            href="/"
+            className="text-white/40 hover:text-white/70 transition-colors text-sm"
+          >
+            ← Home
+          </Link>
+          <span className="text-white/20">/</span>
+          <span className="text-white/60 text-sm">Join debate</span>
+        </div>
+      </nav>
+
+      {/* Content */}
+      <div className="flex-1 flex items-center justify-center px-6 py-16">
+        <div className="w-full max-w-sm">
+
+          {/* Header */}
+          <div className="mb-10 text-center">
+            <h1 className="text-3xl font-bold tracking-tight mb-2">
+              Enter your code
+            </h1>
+            <p className="text-white/40 text-sm leading-relaxed">
+              Ask your opponent for their 4-digit room code.
+            </p>
+          </div>
+
+          {/* Code input — large digit display */}
+          <div className="mb-3">
+            <div className="relative">
+              {/* Visual digit boxes */}
+              <div
+                className="grid grid-cols-4 gap-3 mb-3"
+                aria-hidden="true"
+              >
+                {[0, 1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className={`h-16 rounded-xl border flex items-center justify-center text-2xl font-bold font-mono transition-all ${
+                      i === digits.length
+                        ? "border-indigo-500 bg-indigo-600/10"
+                        : digits[i]
+                        ? "border-white/[0.15] bg-white/[0.06] text-white"
+                        : "border-white/[0.07] bg-white/[0.02] text-white/20"
+                    }`}
+                  >
+                    {digits[i] ?? (i === digits.length ? (
+                      <span className="w-0.5 h-6 bg-indigo-400 animate-pulse rounded-full" />
+                    ) : "·")}
+                  </div>
+                ))}
+              </div>
+
+              {/* Hidden real input overlaid on top */}
+              <input
+                type="text"
+                inputMode="numeric"
+                value={code}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, "").slice(0, 4);
+                  setCode(val);
+                  setError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && code.length === 4) handleJoin();
+                }}
+                autoFocus
+                maxLength={4}
+                aria-label="4-digit debate code"
+                className="absolute inset-0 w-full h-full opacity-0 cursor-text"
+              />
+            </div>
+
+            {error && (
+              <p className="text-sm text-rose-400 text-center mt-2">{error}</p>
+            )}
+          </div>
+
+          {/* Tap to focus hint */}
+          <p className="text-center text-xs text-white/20 mb-8">
+            Tap the boxes and type your code
           </p>
 
-          <div className="mb-6">
-            <label className="block text-sm font-semibold text-slate-300 mb-2">
-              Debate Code
-            </label>
-            <input
-              type="text"
-              value={code}
-              onChange={(e) => {
-                const val = e.target.value.replace(/\D/g, "").slice(0, 4);
-                setCode(val);
-                setError("");
-              }}
-              onKeyDown={handleKeyDown}
-              placeholder="e.g. 2045"
-              maxLength={4}
-              inputMode="numeric"
-              className="w-full rounded-lg bg-slate-600 text-white text-center text-2xl font-bold px-4 py-4 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 tracking-widest"
-            />
-            <p className="text-slate-400 text-xs mt-2">
-              Ask your opponent for their 4-digit debate code
-            </p>
-          </div>
+          {/* Join button */}
+          <button
+            onClick={handleJoin}
+            disabled={code.length !== 4 || loading}
+            className="w-full px-5 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:bg-white/[0.06] disabled:text-white/20 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all mb-3"
+          >
+            {loading ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="w-3.5 h-3.5 border border-white/30 border-t-white/80 rounded-full animate-spin" />
+                Checking…
+              </span>
+            ) : (
+              "Join debate →"
+            )}
+          </button>
 
-          {error && (
-            <div className="mb-6 bg-red-500/20 border border-red-500 rounded-lg p-3 text-red-300 text-sm">
-              ⚠️ {error}
-            </div>
-          )}
+          <Link
+            href="/dashboard"
+            className="block w-full text-center px-5 py-3 rounded-xl bg-white/[0.04] hover:bg-white/[0.07] border border-white/[0.07] text-white/50 hover:text-white text-sm font-medium transition-all"
+          >
+            Back to dashboard
+          </Link>
 
-          <div className="space-y-3">
-            <button
-              onClick={handleJoin}
-              disabled={code.length !== 4 || loading}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-semibold transition-all"
+          {/* Divider */}
+          <div className="mt-10 pt-8 border-t border-white/[0.06] text-center">
+            <p className="text-xs text-white/30 mb-3">Don't have a code?</p>
+            <Link
+              href="/debate/new"
+              className="text-sm text-indigo-400 hover:text-indigo-300 transition-colors font-medium"
             >
-              {loading ? "Checking code..." : "Join Debate"}
-            </button>
-
-            <button
-              onClick={() => router.push("/dashboard")}
-              className="w-full bg-slate-600 hover:bg-slate-500 text-white px-6 py-3 rounded-lg font-semibold transition-all"
-            >
-              Back to Dashboard
-            </button>
-          </div>
-
-          <div className="mt-8 bg-blue-500/20 border border-blue-500 rounded-lg p-4">
-            <p className="text-blue-300 text-sm">
-              <strong>💡 How it works:</strong> When someone creates a debate,
-              they'll see a 4-digit code in the lobby. Enter that code here to
-              join them.
-            </p>
+              Start your own debate →
+            </Link>
           </div>
         </div>
       </div>
