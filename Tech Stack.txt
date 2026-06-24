@@ -1,0 +1,46 @@
+Tech Stack
+
+Front End
+
+Stage 1 Prototype
+React or Next.js
+TailwindCSS
+WebSocket(live debate updates)
+
+Stage 2 Production
+Next.js(SSR + SEO for public debates)
+Zustand or Redux for state management
+Component library (ShadCN, Chakra UI)
+
+
+
+Back End
+
+Stage 1 Production
+Node.js
+Python FastAPI
+
+Stage 2 (Production):
+Microservices architecture
+Debate service
+AI evaluation service
+User service
+Moderation service
+
+
+Database
+PostgreSQL (users, debates, comments, ratings)
+Redis (real-time caching, matchmaking)
+ElasticSearch (search debates, topics)
+
+
+AI Layer
+LangChain / LangGraph (used in Deb8Flow) 
+Dialectus Engine (ready-made debate orchestration) 
+Or build my own
+
+Hosting 
+Vercel (frontend)
+Render / Railway (backend)
+Supabase / Neon (database)
+

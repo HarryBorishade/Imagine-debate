@@ -1,0 +1,90 @@
+Things to consider
+
+A. Moderation & safety
+Debates about politics can get toxic.
+You’ll need:
+
+AI content moderation
+
+Topic restrictions
+
+Anti-harassment filters
+
+Fact-checking (optional but powerful)
+
+Deb8Flow uses a fact-checker agent to prevent misinformation. 
+
+B. Debate formats
+You may want multiple formats:
+
+Timed rounds
+
+Free-flow
+
+Oxford-style
+
+Parliamentary
+
+Power-scaling “battle debates”
+
+Dialectus Engine already supports multiple formats. 
+
+C. Ranking systems
+Like chess ELO:
+
+Users gain rating points
+
+Leaderboards
+
+Seasonal resets
+
+D. Community features
+You mentioned Reddit-like forums — consider:
+
+Upvotes
+
+Comments
+
+“Follow debaters”
+
+Debate requests
+
+Topic tags
+
+E. AI fairness
+AI judges can be biased.
+You may need:
+
+Multiple judges (ensemble scoring)
+
+Transparency logs
+
+Appeal system
+
+F. Scalability
+Real-time debates require:
+
+WebSockets
+
+Low-latency servers
+
+Efficient database design
+
+G. Legal considerations
+GDPR (you’re in the UK)
+
+Age restrictions
+
+Data storage policies
+
+
+
+Add a word limit per round, e.g.:
+
+Opening: 150–250 words
+
+Rebuttal: 150–250 words
+
+Counter: 100–200 words
+
+Closing: 100–150 words

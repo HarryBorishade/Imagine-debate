@@ -1,0 +1,3 @@
+Database stuff
+
+supabase pw = WXN91YLKHJexaup6

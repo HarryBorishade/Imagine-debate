@@ -1,0 +1,305 @@
+General Architecture
+
+
+1. Frontend architecture (client)
+Tech stack:
+
+Framework: React (or Next.js if you want SSR later)
+
+State: React Query / Zustand for server + UI state
+
+Styling: Tailwind or CSS modules
+
+Auth: Supabase Auth client SDK
+
+Realtime: Supabase Realtime (for debate events)
+
+Core UI modules:
+
+Auth pages: Login, signup, forgot password
+
+Lobby:
+
+Topic list / categories
+
+“Find match” / “Create debate”
+
+Active debates list
+
+Debate room:
+
+Two columns: Player A vs Player B
+
+Round indicator + turn indicator
+
+Timer display
+
+Message area (per round)
+
+Input box (locked when not your turn)
+
+Profile:
+
+Basic stats (wins, losses, rating later)
+
+Past debates (links to results)
+
+Results page:
+
+Scores
+
+Winner + simple justification (free)
+
+Detailed rubric + fallacies (premium)
+
+
+
+2. Backend architecture (Supabase-centric)
+You’ll lean heavily on Supabase:
+
+Auth: Supabase Auth (email/password, maybe OAuth later)
+
+Database: Postgres (Supabase)
+
+Realtime: Supabase Realtime (listening to debates, rounds, messages)
+
+Storage: For avatars, maybe exports later
+
+Edge Functions: For AI judge calls (server-side, not from client)
+
+Backend responsibilities:
+
+Create / join debates
+
+Enforce debate ownership and permissions
+
+Persist rounds, messages, results
+
+Trigger AI judge when debate ends
+
+Store judge outputs (scores, summaries, fallacies)
+
+
+
+3. Core debate state machine (synchronous 1v1)
+Think of each debate as a row in debates with a status and current_round.
+
+Rounds (fixed for MVP):
+
+Opening
+
+Rebuttal
+
+Counter‑Rebuttal
+
+Closing
+
+Judging (no user input)
+
+Key fields in debates:
+
+id
+
+topic
+
+player_a_id
+
+player_b_id
+
+status (waiting, in_progress, completed)
+
+current_round (opening, rebuttal, counter, closing, judging)
+
+current_turn (player_a, player_b)
+
+turn_expires_at (for timer)
+
+created_at, updated_at
+
+Flow:
+
+Both players join → click Ready → status → in_progress
+
+current_round = 'opening', current_turn = 'player_a'
+
+Player A submits → backend validates → switches current_turn to player_b
+
+After both have submitted for that round → advance current_round
+
+After closing round → current_round = 'judging' → trigger AI judge
+
+Timers:
+
+On turn start, set turn_expires_at = now + 120s
+
+Frontend shows countdown
+
+If expired and no message → auto‑forfeit or auto‑skip (MVP: auto‑forfeit)
+
+
+
+4. Database schema (simplified)
+users (Supabase auth.users + profile table)
+
+id
+
+username
+
+is_premium
+
+created_at
+
+debates
+
+id
+
+topic
+
+player_a_id
+
+player_b_id
+
+status
+
+current_round
+
+current_turn
+
+turn_expires_at
+
+winner_id (nullable)
+
+created_at, updated_at
+
+rounds
+
+id
+
+debate_id
+
+round_type (opening, rebuttal, counter, closing)
+
+created_at
+
+messages
+
+id
+
+debate_id
+
+round_id
+
+sender_id
+
+content
+
+created_at
+
+judge_results
+
+id
+
+debate_id
+
+player_a_score
+
+player_b_score
+
+winner_id
+
+winner_reason_short (free)
+
+player_a_summary (premium)
+
+player_b_summary (premium)
+
+player_a_fallacies (JSON, premium)
+
+player_b_fallacies (JSON, premium)
+
+rubric_breakdown (JSON, premium)
+
+created_at
+
+
+
+5. Realtime + WebSocket flow (Supabase Realtime)
+You don’t manage raw WebSockets yourself; you subscribe to table changes.
+
+Frontend subscribes to:
+
+debates row (for current_round, current_turn, status, turn_expires_at)
+
+messages for that debate_id
+
+judge_results for that debate_id
+
+Events:
+
+On debates update → update UI (turn, round, timer)
+
+On messages insert → append to chat
+
+On judge_results insert → show results page
+
+
+
+6. AI judge pipeline
+Where: Supabase Edge Function (or separate Node server if you prefer)
+
+Trigger:
+
+When debates.status changes to completed OR current_round = 'judging'
+
+Steps:
+
+Fetch debate transcript (messages + rounds + topic)
+
+Build prompt:
+
+Topic
+
+Rules
+
+Round structure
+
+Full transcript
+
+Ask model to output:
+
+Player A score
+
+Player B score
+
+Winner
+
+Short winner justification
+
+Player A summary (detailed)
+
+Player B summary (detailed)
+
+Fallacies per player
+
+Rubric breakdown
+
+Store in judge_results
+
+Frontend sees new judge_results via Realtime → shows results
+
+Free vs premium:
+
+Judge always generates full data
+
+Frontend hides premium fields for non‑premium users
+
+
+
+7. Deployment plan (MVP)
+Frontend: Vercel (React/Next.js)
+
+Backend: Supabase (DB, Auth, Realtime, Edge Functions)
+
+Domain: Point to Vercel app
+
+Env vars: Supabase URL, anon/public keys, service key (only in Edge Functions)
