@@ -208,14 +208,17 @@ export default function DebateLobby() {
   }, [stage]);
 
   const handleChooseSide = (side: "for" | "against") => {
-    if (!socketRef.current) return;
+  if (!socketRef.current) return;
 
-    setMySide(side);
-    setIAmReady(false);
-    setReadyError("");
+  setReadyError("");
+  setMySide(side);
+  setIAmReady(false);
 
-    socketRef.current.emit("choose_side", { debateId, side });
-  };
+  socketRef.current.emit("choose_side", {
+    debateId,
+    side,
+  });
+};
 
   const handleReady = () => {
     if (!socketRef.current || iAmReady) return;
