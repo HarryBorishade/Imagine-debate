@@ -181,7 +181,7 @@ export default function JoinDebate() {
           <div className="mt-10 pt-8 border-t border-white/[0.06] text-center">
             <p className="text-xs text-white/30 mb-3">Don't have a code?</p>
             <Link
-              href="/debate/new"
+              href="/debate/create"
               className="text-sm text-indigo-400 hover:text-indigo-300 transition-colors font-medium"
             >
               Start your own debate →

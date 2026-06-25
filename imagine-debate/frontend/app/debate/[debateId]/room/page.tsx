@@ -1,11 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { io, Socket } from "socket.io-client";
 import { supabase } from "@/supabaseClient";
-
-// ─── Types ─────────────────────────────────────────────────────────────────────
 
 interface Message {
   userId?: string;
@@ -26,50 +24,80 @@ interface GracePeriod {
   secondsLeft: number;
 }
 
+interface DebateStartedPayload {
+  debateId: string;
+  debateName: string;
+  timePerTurn: number;
+  players: Array<{
+    id: string;
+    username: string;
+    side: "for" | "against";
+  }>;
+  startTime: string | null;
+  reconnect: boolean;
+  currentTurnUserId?: string;
+  secondsLeft?: number;
+}
+
 type PageState = "loading" | "error" | "debate" | "result";
 
-// ─── Constants ─────────────────────────────────────────────────────────────────
-
 const GRACE_PERIOD_MAX = 15;
-
-// ─── Component ─────────────────────────────────────────────────────────────────
 
 export default function DebateRoom() {
   const params = useParams();
   const router = useRouter();
   const debateId = params.debateId as string;
 
-  // Refs — don't trigger re-renders
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const userIdRef = useRef<string | null>(null);
+  const joinedRef = useRef(false);
 
-  // UI state
   const [pageState, setPageState] = useState<PageState>("loading");
   const [errorMessage, setErrorMessage] = useState("");
+
+  const [debateName, setDebateName] = useState("");
   const [mySide, setMySide] = useState<"for" | "against" | null>(null);
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
+
   const [gracePeriod, setGracePeriod] = useState<GracePeriod | null>(null);
   const [result, setResult] = useState<DebateResult | null>(null);
 
-  // ── Scroll to bottom on new messages ────────────────────────────────────────
+  const [currentTurnUserId, setCurrentTurnUserId] = useState<string | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+  const [timePerTurn, setTimePerTurn] = useState<number | null>(null);
+  const [turnError, setTurnError] = useState("");
+
+  const addSystemMessage = useCallback((content: string) => {
+    setMessages((prev) => [...prev, { system: true, content }]);
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // ── Socket setup ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!/^\d{4}$/.test(debateId)) {
+      router.replace("/debate/create");
+    }
+  }, [debateId, router]);
 
   useEffect(() => {
+    if (!/^\d{4}$/.test(debateId)) return;
+
     let cancelled = false;
 
     async function init() {
+      setPageState("loading");
+      setErrorMessage("");
+
       const {
         data: { session },
       } = await supabase.auth.getSession();
 
-      if (!session?.access_token) {
+      if (!session?.user || !session.access_token) {
         setErrorMessage("You must be logged in to join a debate.");
         setPageState("error");
         return;
@@ -83,13 +111,21 @@ export default function DebateRoom() {
         | "for"
         | "against"
         | null;
+
+      const storedTopic = sessionStorage.getItem(`debate_${debateId}_topic`);
+      const storedTimePerTurn = sessionStorage.getItem(
+        `debate_${debateId}_timePerTurn`
+      );
+
       if (storedSide) setMySide(storedSide);
+      if (storedTopic) setDebateName(storedTopic);
+      if (storedTimePerTurn) setTimePerTurn(Number(storedTimePerTurn));
 
       const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000";
 
       const socket = io(socketUrl, {
         auth: { token: session.access_token },
-        transports: ["websocket"],
+        transports: ["websocket", "polling"],
         reconnection: true,
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,
@@ -98,67 +134,131 @@ export default function DebateRoom() {
 
       socketRef.current = socket;
 
-      // ── Connect / join ───────────────────────────────────────────────────────
-
       socket.on("connect", () => {
-        console.log("✅ Socket connected");
+        console.log("✅ Room socket connected:", socket.id);
+        joinedRef.current = true;
         socket.emit("join_debate", { debateId });
       });
 
-      // ── Debate started / reconnected ─────────────────────────────────────────
+      socket.on("connect_error", (err) => {
+        console.warn("❌ Room socket connection error:", err.message);
+        setErrorMessage(err.message || "Could not connect to debate server.");
+        setPageState("error");
+      });
+
+      socket.on("debate_started", (payload: DebateStartedPayload) => {
+        const me = payload.players.find((p) => p.id === userIdRef.current);
+
+        if (!me) {
+          setErrorMessage("You are not a participant in this debate.");
+          setPageState("error");
+          return;
+        }
+
+        setMySide(me.side);
+        setDebateName(payload.debateName);
+        setTimePerTurn(payload.timePerTurn);
+
+        sessionStorage.setItem(`debate_${debateId}_side`, me.side);
+        sessionStorage.setItem(`debate_${debateId}_topic`, payload.debateName);
+        sessionStorage.setItem(
+          `debate_${debateId}_timePerTurn`,
+          String(payload.timePerTurn)
+        );
+
+        if (payload.currentTurnUserId) {
+          setCurrentTurnUserId(payload.currentTurnUserId);
+        }
+
+        if (typeof payload.secondsLeft === "number") {
+          setSecondsLeft(payload.secondsLeft);
+        }
+
+        setGracePeriod(null);
+        setResult(null);
+        setPageState("debate");
+
+        if (payload.reconnect) {
+          addSystemMessage("✅ Reconnected to the debate.");
+        }
+      });
 
       socket.on(
-        "debate_started",
-        (payload: {
-          players: Array<{ id: string; side: "for" | "against" }>;
-          reconnect: boolean;
+        "turn_started",
+        (data: {
+          debateId: string;
+          debateName: string;
+          currentTurnUserId: string;
+          currentTurnUsername: string;
+          secondsLeft: number;
+          timePerTurn: number;
+          resumed?: boolean;
         }) => {
-          const me = payload.players.find((p) => p.id === userIdRef.current);
-          if (me) {
-            setMySide(me.side);
-            sessionStorage.setItem(`debate_${debateId}_side`, me.side);
-          }
+          setCurrentTurnUserId(data.currentTurnUserId);
+          setSecondsLeft(data.secondsLeft);
+          setTimePerTurn(data.timePerTurn);
+          setDebateName(data.debateName);
 
-          if (payload.reconnect) {
-            // Clear any stale grace/result UI on reconnect
-            setGracePeriod(null);
-            setResult(null);
+          if (!data.resumed) {
+            addSystemMessage(`🎤 ${data.currentTurnUsername}'s turn started.`);
           }
-
-          setPageState("debate");
         }
       );
 
-      // ── Messages ──────────────────────────────────────────────────────────────
+      socket.on(
+        "turn_tick",
+        (data: {
+          debateId: string;
+          currentTurnUserId: string;
+          secondsLeft: number;
+        }) => {
+          setCurrentTurnUserId(data.currentTurnUserId);
+          setSecondsLeft(data.secondsLeft);
+        }
+      );
+
+      socket.on(
+        "turn_timeout",
+        (data: {
+          debateId: string;
+          userId: string;
+          username?: string;
+        }) => {
+          addSystemMessage(
+            `⏰ ${data.username || "A player"} ran out of time.`
+          );
+        }
+      );
+
+      socket.on("turn_error", ({ message }: { message: string }) => {
+        setTurnError(message || "It is not your turn yet.");
+        setTimeout(() => setTurnError(""), 2500);
+      });
 
       socket.on("new_message", (msg: Message) => {
         setMessages((prev) => [...prev, msg]);
       });
 
-      // ── Grace period: opponent dropped ────────────────────────────────────────
-
       socket.on(
         "opponent_disconnected",
         (data: { username: string; secondsLeft: number }) => {
-          setGracePeriod({ username: data.username, secondsLeft: data.secondsLeft });
+          setGracePeriod({
+            username: data.username,
+            secondsLeft: data.secondsLeft,
+          });
 
-          // Inject a system message only on the first tick
           if (data.secondsLeft === GRACE_PERIOD_MAX) {
             addSystemMessage(
-              `⚠️ ${data.username} lost connection — ${data.secondsLeft}s to reconnect.`
+              `⚠️ ${data.username} lost connection. They have ${data.secondsLeft}s to reconnect.`
             );
           }
         }
       );
 
-      // ── Opponent came back ────────────────────────────────────────────────────
-
       socket.on("opponent_reconnected", () => {
         setGracePeriod(null);
-        addSystemMessage("✅ Opponent reconnected — debate continues!");
+        addSystemMessage("✅ Opponent reconnected. Debate continues.");
       });
-
-      // ── Debate over ───────────────────────────────────────────────────────────
 
       socket.on("debate_ended", (data: DebateResult) => {
         setGracePeriod(null);
@@ -166,58 +266,45 @@ export default function DebateRoom() {
         setPageState("result");
       });
 
-      // ── Join rejected ─────────────────────────────────────────────────────────
-
-      socket.on("join_error", (data: { message: string }) => {
-        setErrorMessage(data.message);
+      socket.on("join_error", ({ message }: { message: string }) => {
+        setErrorMessage(message || "Could not join debate.");
         setPageState("error");
       });
 
-      // ── Connection events ─────────────────────────────────────────────────────
-
       socket.on("disconnect", (reason: string) => {
-        console.warn("⚠️ Disconnected:", reason);
-        addSystemMessage("⚠️ Connection lost — reconnecting…");
-      });
-
-      socket.on("reconnect", () => {
-        console.log("🔄 Reconnected — rejoining debate");
-        socket.emit("join_debate", { debateId });
-        addSystemMessage("✅ Reconnected.");
-      });
-
-      socket.on("connect_error", (err: Error) => {
-        console.warn("Connection attempt failed:", err.message);
-      });
+        console.warn("⚠️ Room socket disconnected:", reason);
+        });
 
       socket.io.on("reconnect_failed", () => {
         setErrorMessage("Lost connection to the debate server. Please refresh.");
         setPageState("error");
       });
-
-      setPageState("debate");
     }
 
     init();
 
     return () => {
       cancelled = true;
-      socketRef.current?.emit("leave_debate", { debateId });
+      joinedRef.current = false;
+
+      // Important:
+      // Do not emit leave_debate here.
+      // Only the Leave button should intentionally leave the debate.
       socketRef.current?.disconnect();
       socketRef.current = null;
     };
-  }, [debateId]);
-
-  // ── Helpers ───────────────────────────────────────────────────────────────────
-
-  const addSystemMessage = useCallback((content: string) => {
-    setMessages((prev) => [...prev, { system: true, content }]);
-  }, []);
+  }, [debateId, router, addSystemMessage]);
 
   const sendMessage = useCallback(() => {
     const trimmed = input.trim();
+
     if (!socketRef.current || !trimmed) return;
-    socketRef.current.emit("send_message", { debateId, content: trimmed });
+
+    socketRef.current.emit("send_message", {
+      debateId,
+      content: trimmed,
+    });
+
     setInput("");
   }, [debateId, input]);
 
@@ -228,15 +315,18 @@ export default function DebateRoom() {
     }
   };
 
-  const handleLeave = () => {
-    socketRef.current?.emit("leave_debate", { debateId });
-    clearSession();
-    router.push("/dashboard");
-  };
-
   const clearSession = () => {
     sessionStorage.removeItem(`debate_${debateId}_side`);
     sessionStorage.removeItem(`debate_${debateId}_startTime`);
+    sessionStorage.removeItem(`debate_${debateId}_topic`);
+    sessionStorage.removeItem(`debate_${debateId}_timePerTurn`);
+  };
+
+  const handleLeave = () => {
+    socketRef.current?.emit("leave_debate", { debateId });
+    socketRef.current?.disconnect();
+    clearSession();
+    router.push("/dashboard");
   };
 
   const returnToDashboard = () => {
@@ -244,26 +334,25 @@ export default function DebateRoom() {
     router.push("/dashboard");
   };
 
-  // ─── Render: loading ──────────────────────────────────────────────────────────
+  if (!/^\d{4}$/.test(debateId)) return null;
 
   if (pageState === "loading") {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-900">
         <div className="flex flex-col items-center gap-4">
           <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-slate-400 text-sm">Joining debate room…</p>
+          <p className="text-slate-400 text-sm">Joining debate room...</p>
         </div>
       </div>
     );
   }
-
-  // ─── Render: error ────────────────────────────────────────────────────────────
 
   if (pageState === "error") {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-900 p-6">
         <div className="text-center max-w-sm">
           <p className="text-red-400 text-lg mb-6">{errorMessage}</p>
+
           <button
             onClick={() => router.push("/dashboard")}
             className="px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors"
@@ -275,8 +364,6 @@ export default function DebateRoom() {
     );
   }
 
-  // ─── Render: result ───────────────────────────────────────────────────────────
-
   if (pageState === "result" && result !== null) {
     const iWon = result.winner.id === userIdRef.current;
 
@@ -286,24 +373,36 @@ export default function DebateRoom() {
           {iWon ? (
             <>
               <div className="text-8xl mb-6">🏆</div>
-              <h1 className="text-4xl font-bold text-yellow-400 mb-3">You Won!</h1>
+              <h1 className="text-4xl font-bold text-yellow-400 mb-3">
+                You Won!
+              </h1>
+
               <p className="text-slate-300 mb-2">
                 {result.reason === "opponent_disconnected"
-                  ? `${result.loser.username} didn't reconnect in time.`
+                  ? `${result.loser.username} did not reconnect in time.`
                   : `${result.loser.username} left the debate.`}
               </p>
-              <p className="text-slate-500 text-sm mb-10">Congratulations on your victory.</p>
+
+              <p className="text-slate-500 text-sm mb-10">
+                Congratulations on your victory.
+              </p>
             </>
           ) : (
             <>
               <div className="text-8xl mb-6">😔</div>
-              <h1 className="text-4xl font-bold text-slate-300 mb-3">You Lost</h1>
+              <h1 className="text-4xl font-bold text-slate-300 mb-3">
+                You Lost
+              </h1>
+
               <p className="text-slate-300 mb-2">
                 {result.reason === "opponent_disconnected"
-                  ? `${result.winner.username} wins — you failed to reconnect in time.`
-                  : `${result.winner.username} wins — you left the debate.`}
+                  ? `${result.winner.username} wins because you failed to reconnect in time.`
+                  : `${result.winner.username} wins because you left the debate.`}
               </p>
-              <p className="text-slate-500 text-sm mb-10">Better luck next time.</p>
+
+              <p className="text-slate-500 text-sm mb-10">
+                Better luck next time.
+              </p>
             </>
           )}
 
@@ -318,17 +417,20 @@ export default function DebateRoom() {
     );
   }
 
-  // ─── Render: debate room ──────────────────────────────────────────────────────
+  const isMyTurn = currentTurnUserId === userIdRef.current;
+  const turnProgress =
+    secondsLeft !== null && timePerTurn
+      ? Math.max(0, Math.min(100, (secondsLeft / timePerTurn) * 100))
+      : 0;
 
   return (
     <div className="flex flex-col h-screen bg-gradient-to-br from-slate-900 to-slate-800">
-
-      {/* Header */}
       <header className="flex-none bg-slate-800 border-b border-slate-700 px-6 py-4 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-white tracking-tight">
-            Debate #{debateId}
+            {debateName || `Debate #${debateId}`}
           </h1>
+
           <p className="text-sm text-slate-400 mt-0.5">
             {mySide ? (
               <>
@@ -339,14 +441,14 @@ export default function DebateRoom() {
                   }`}
                 >
                   {mySide === "for" ? "FOR" : "AGAINST"}
-                </span>{" "}
-                the motion
+                </span>
               </>
             ) : (
-              "Waiting for debate to start…"
+              "Waiting for debate to start..."
             )}
           </p>
         </div>
+
         <button
           onClick={handleLeave}
           className="px-4 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 transition-colors"
@@ -355,7 +457,31 @@ export default function DebateRoom() {
         </button>
       </header>
 
-      {/* Grace period banner */}
+      <div className="flex-none bg-slate-800/80 border-b border-slate-700 px-6 py-3">
+        <div className="max-w-3xl mx-auto">
+          <div className="flex items-center justify-between mb-2">
+            <p
+              className={`text-sm font-semibold ${
+                isMyTurn ? "text-emerald-400" : "text-slate-400"
+              }`}
+            >
+              {isMyTurn ? "Your turn" : "Opponent's turn"}
+            </p>
+
+            <p className="text-sm text-slate-400 tabular-nums">
+              {secondsLeft !== null ? `${secondsLeft}s` : "--"}
+            </p>
+          </div>
+
+          <div className="w-full h-1.5 bg-slate-700 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-blue-500 rounded-full transition-all duration-1000 ease-linear"
+              style={{ width: `${turnProgress}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
       {gracePeriod && (
         <div className="flex-none bg-orange-950/60 border-b border-orange-700/50 px-6 py-4">
           <div className="max-w-3xl mx-auto">
@@ -363,45 +489,52 @@ export default function DebateRoom() {
               <p className="text-orange-300 font-semibold">
                 ⚠️ {gracePeriod.username} disconnected
               </p>
+
               <span
                 className={`text-2xl font-bold tabular-nums ${
-                  gracePeriod.secondsLeft <= 5 ? "text-red-400" : "text-orange-300"
+                  gracePeriod.secondsLeft <= 5
+                    ? "text-red-400"
+                    : "text-orange-300"
                 }`}
               >
                 {gracePeriod.secondsLeft}s
               </span>
             </div>
+
             <div className="w-full h-1.5 bg-orange-950 rounded-full overflow-hidden">
               <div
                 className="h-full bg-orange-400 rounded-full transition-all duration-1000 ease-linear"
-                style={{ width: `${(gracePeriod.secondsLeft / GRACE_PERIOD_MAX) * 100}%` }}
+                style={{
+                  width: `${(gracePeriod.secondsLeft / GRACE_PERIOD_MAX) * 100}%`,
+                }}
               />
             </div>
           </div>
         </div>
       )}
 
-      {/* Messages */}
       <main className="flex-1 overflow-y-auto px-6 py-6 space-y-3">
         {messages.length === 0 && (
           <p className="text-slate-500 text-center text-sm py-12">
-            No messages yet. Make your opening argument.
+            No messages yet. The player arguing FOR makes the opening argument.
           </p>
         )}
 
-        {messages.map((msg, i) =>
+        {messages.map((msg, index) =>
           msg.system ? (
             <div
-              key={i}
+              key={index}
               className="text-center text-xs text-slate-500 italic py-1"
             >
               {msg.content}
             </div>
           ) : (
             <div
-              key={i}
+              key={index}
               className={`flex ${
-                msg.userId === userIdRef.current ? "justify-end" : "justify-start"
+                msg.userId === userIdRef.current
+                  ? "justify-end"
+                  : "justify-start"
               }`}
             >
               <div
@@ -415,6 +548,7 @@ export default function DebateRoom() {
                   <span className="text-xs font-semibold opacity-70">
                     {msg.username}
                   </span>
+
                   {msg.timestamp && (
                     <span className="text-xs opacity-40">
                       {new Date(msg.timestamp).toLocaleTimeString([], {
@@ -424,6 +558,7 @@ export default function DebateRoom() {
                     </span>
                   )}
                 </div>
+
                 <p className="text-sm leading-relaxed">{msg.content}</p>
               </div>
             </div>
@@ -433,24 +568,35 @@ export default function DebateRoom() {
         <div ref={messagesEndRef} />
       </main>
 
-      {/* Input */}
       <footer className="flex-none bg-slate-800 border-t border-slate-700 px-6 py-4">
-        <div className="flex gap-3 max-w-3xl mx-auto">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Type your argument…"
-            className="flex-1 rounded-xl bg-slate-700 text-white px-4 py-3 text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
-          />
-          <button
-            onClick={sendMessage}
-            disabled={!input.trim()}
-            className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl text-sm font-semibold transition-colors"
-          >
-            Send
-          </button>
+        <div className="max-w-3xl mx-auto">
+          {turnError && (
+            <p className="text-red-400 text-sm mb-2 text-center">{turnError}</p>
+          )}
+
+          <div className="flex gap-3">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                isMyTurn
+                  ? "Type your argument..."
+                  : "Wait for your turn..."
+              }
+              disabled={!isMyTurn}
+              className="flex-1 rounded-xl bg-slate-700 text-white px-4 py-3 text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+
+            <button
+              onClick={sendMessage}
+              disabled={!input.trim() || !isMyTurn}
+              className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl text-sm font-semibold transition-colors"
+            >
+              Send
+            </button>
+          </div>
         </div>
       </footer>
     </div>

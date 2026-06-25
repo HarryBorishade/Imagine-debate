@@ -5,6 +5,7 @@ import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import { createAdapter } from "@socket.io/redis-adapter";
 import { createClient } from "redis";
+import { supabase } from "@supabase";  // ⚠️ adjust this import if your client lives elsewhere / has a different export name
 
 dotenv.config();
 
@@ -13,6 +14,7 @@ const PORT = Number(process.env.PORT || 4000);
 const REDIS_URL = process.env.REDIS_URL || "";
 const MAX_PLAYERS = 2;
 const GRACE_PERIOD_SECONDS = 15;
+const DEFAULT_TURN_SECONDS = 120; // fallback if a debate row has no time_per_turn
 
 const app = express();
 const server = http.createServer(app);
@@ -44,15 +46,25 @@ interface PlayerInfo {
 }
 
 type DebateStatus = "waiting" | "active";
+type Side = "for" | "against";
 
 interface DebateRoom {
   status: DebateStatus;
   // userId -> ready (only meaningful during "waiting")
   readyState: Record<string, boolean>;
+  // userId -> chosen side, set during "waiting" via choose_side
+  sideChoice: Record<string, Side>;
   // userId -> username (persisted so we can reference disconnected players)
   playerNames: Record<string, string>;
-  // userId -> side assignment (set when debate goes active)
-  sides: Record<string, "for" | "against">;
+  // userId -> locked-in side assignment (set when debate goes active)
+  sides: Record<string, Side>;
+  // Debate metadata pulled from Supabase
+  debateName: string;
+  timePerTurn: number; // seconds
+  // Turn state (only meaningful during "active")
+  turnOrder?: [string, string]; // [forUserId, againstUserId]
+  currentTurn?: string; // userId whose turn it currently is
+  turnSecondsLeft?: number;
 }
 
 // ─── In-memory state ───────────────────────────────────────────────────────────
@@ -64,6 +76,12 @@ const userSockets: Record<string, Set<string>> = {};
 
 // debateId -> grace period interval
 const gracePeriodTimers: Record<string, NodeJS.Timeout> = {};
+
+// debateId -> turn countdown interval
+const turnTimers: Record<string, NodeJS.Timeout> = {};
+
+// Cache of debate metadata so we don't hit Supabase on every join
+const debateMetaCache: Record<string, { name: string; timePerTurn: number }> = {};
 
 // ─── Auth middleware ───────────────────────────────────────────────────────────
 
@@ -99,10 +117,42 @@ function getRoom(debateId: string): DebateRoom {
   rooms[debateId] ??= {
     status: "waiting",
     readyState: {},
+    sideChoice: {},
     playerNames: {},
     sides: {},
+    debateName: debateId,
+    timePerTurn: DEFAULT_TURN_SECONDS,
   };
   return rooms[debateId];
+}
+
+/**
+ * Fetches the debate's topic + time_per_turn from Supabase, caching the
+ * result so repeat joins/reconnects don't re-query.
+ */
+async function fetchDebateMeta(
+  debateId: string
+): Promise<{ name: string; timePerTurn: number }> {
+  if (debateMetaCache[debateId]) return debateMetaCache[debateId];
+
+  const { data, error } = await supabase
+    .from("debates")
+    .select("topic, time_per_turn")
+    .eq("id", debateId)
+    .single();
+
+  if (error || !data) {
+    console.warn(`⚠️ Could not load debate meta for ${debateId}:`, error?.message);
+    const fallback = { name: debateId, timePerTurn: DEFAULT_TURN_SECONDS };
+    return fallback; // don't cache failures — worth retrying next time
+  }
+
+  const meta = {
+    name: data.topic as string,
+    timePerTurn: (data.time_per_turn as number) ?? DEFAULT_TURN_SECONDS,
+  };
+  debateMetaCache[debateId] = meta;
+  return meta;
 }
 
 /**
@@ -133,11 +183,14 @@ function emitLobbyState(debateId: string, excludeSocketId?: string) {
   const players = getConnectedPlayers(debateId, excludeSocketId).map((p) => ({
     ...p,
     ready: room?.readyState[p.id] ?? false,
+    side: room?.sideChoice[p.id] ?? null,
   }));
 
   io.to(roomKey(debateId)).emit("lobby_state", {
     players,
     status: room?.status ?? "waiting",
+    debateName: room?.debateName ?? debateId,
+    timePerTurn: room?.timePerTurn ?? DEFAULT_TURN_SECONDS,
   });
 }
 
@@ -147,6 +200,106 @@ function clearGracePeriod(debateId: string) {
     delete gracePeriodTimers[debateId];
   }
 }
+
+// ─── Turn timer ────────────────────────────────────────────────────────────────
+
+function clearTurnTimer(debateId: string) {
+  if (turnTimers[debateId]) {
+    clearInterval(turnTimers[debateId]);
+    delete turnTimers[debateId];
+  }
+}
+
+/**
+ * Begins (or restarts) the per-second countdown for whoever the room's
+ * `currentTurn` is currently set to, using whatever `turnSecondsLeft` is
+ * already on the room. Does NOT reset secondsLeft — callers that want a
+ * fresh full turn should set turnSecondsLeft themselves first (see startTurn).
+ */
+function tickTurnTimer(debateId: string) {
+  clearTurnTimer(debateId);
+
+  turnTimers[debateId] = setInterval(() => {
+    const room = rooms[debateId];
+    if (!room || room.turnSecondsLeft === undefined) {
+      clearTurnTimer(debateId);
+      return;
+    }
+
+    room.turnSecondsLeft -= 1;
+
+    if (room.turnSecondsLeft <= 0) {
+      clearTurnTimer(debateId);
+      io.to(roomKey(debateId)).emit("turn_timeout", {
+        debateId,
+        userId: room.currentTurn,
+        username: room.currentTurn ? room.playerNames[room.currentTurn] : undefined,
+      });
+      advanceTurn(debateId);
+      return;
+    }
+
+    io.to(roomKey(debateId)).emit("turn_tick", {
+      debateId,
+      currentTurnUserId: room.currentTurn,
+      secondsLeft: room.turnSecondsLeft,
+    });
+  }, 1000);
+}
+
+/** Starts a brand new full-length turn for `userId`. */
+function startTurn(debateId: string, userId: string) {
+  const room = rooms[debateId];
+  if (!room) return;
+
+  room.currentTurn = userId;
+  room.turnSecondsLeft = room.timePerTurn;
+
+  io.to(roomKey(debateId)).emit("turn_started", {
+    debateId,
+    debateName: room.debateName,
+    currentTurnUserId: userId,
+    currentTurnUsername: room.playerNames[userId] ?? "Player",
+    secondsLeft: room.turnSecondsLeft,
+    timePerTurn: room.timePerTurn,
+  });
+
+  tickTurnTimer(debateId);
+}
+
+/** Switches the turn to whichever player in turnOrder is NOT currently up. */
+function advanceTurn(debateId: string) {
+  const room = rooms[debateId];
+  if (!room || !room.turnOrder) return;
+
+  const next = room.turnOrder.find((id) => id !== room.currentTurn) ?? room.turnOrder[0];
+  startTurn(debateId, next);
+}
+
+/** Pauses the countdown without losing the remaining time (used during grace periods). */
+function pauseTurnTimer(debateId: string) {
+  clearTurnTimer(debateId);
+}
+
+/** Resumes the countdown from wherever turnSecondsLeft was left off. */
+function resumeTurnTimer(debateId: string) {
+  const room = rooms[debateId];
+  if (!room || room.currentTurn === undefined || room.turnSecondsLeft === undefined) return;
+
+  io.to(roomKey(debateId)).emit("turn_started", {
+    debateId,
+    debateName: room.debateName,
+    currentTurnUserId: room.currentTurn,
+    currentTurnUsername: room.playerNames[room.currentTurn] ?? "Player",
+    secondsLeft: room.turnSecondsLeft,
+    timePerTurn: room.timePerTurn,
+    resumed: true,
+  });
+
+  tickTurnTimer(debateId);
+}
+
+// ─── Disconnect / grace period handling ────────────────────────────────────────
 
 /**
  * Starts a grace period for `disconnectedUserId`. If they reconnect in time,
@@ -158,6 +311,9 @@ function startGracePeriod(debateId: string, disconnectedUserId: string) {
 
   const disconnectedUsername = room.playerNames[disconnectedUserId] ?? "Opponent";
   let secondsLeft = GRACE_PERIOD_SECONDS;
+
+  // The clock pauses while we wait — don't burn turn time during a dropped connection
+  pauseTurnTimer(debateId);
 
   // Immediately notify remaining players
   io.to(roomKey(debateId)).emit("opponent_disconnected", {
@@ -171,6 +327,7 @@ function startGracePeriod(debateId: string, disconnectedUserId: string) {
     if (connected.some((p) => p.id === disconnectedUserId)) {
       clearGracePeriod(debateId);
       io.to(roomKey(debateId)).emit("opponent_reconnected");
+      resumeTurnTimer(debateId);
       return;
     }
 
@@ -178,6 +335,7 @@ function startGracePeriod(debateId: string, disconnectedUserId: string) {
 
     if (secondsLeft <= 0) {
       clearGracePeriod(debateId);
+      clearTurnTimer(debateId);
 
       const remainingPlayers = getConnectedPlayers(debateId).filter(
         (p) => p.id !== disconnectedUserId
@@ -228,6 +386,7 @@ function handleUserLeft(
 
     // Intentional leave — end debate immediately
     clearGracePeriod(debateId);
+    clearTurnTimer(debateId);
 
     const remainingPlayers = getConnectedPlayers(debateId, excludeSocketId).filter(
       (p) => p.id !== userId
@@ -248,11 +407,13 @@ function handleUserLeft(
 
   // Debate was in "waiting" — just update the lobby
   delete room.readyState[userId];
+  delete room.sideChoice[userId];
 
   const remaining = getConnectedPlayers(debateId, excludeSocketId);
 
   if (remaining.length === 0) {
     clearGracePeriod(debateId);
+    clearTurnTimer(debateId);
     delete rooms[debateId];
     console.log(`🗑  Room ${debateId} cleaned up (empty)`);
     return;
@@ -271,10 +432,17 @@ io.on("connection", (socket: Socket) => {
   userSockets[user.id].add(socket.id);
 
   // ── join_debate ────────────────────────────────────────────────────────────
-  socket.on("join_debate", ({ debateId }: { debateId: string }) => {
+  socket.on("join_debate", async ({ debateId }: { debateId: string }) => {
     if (!debateId) return;
 
     const room = getRoom(debateId);
+
+    // Load debate name + turn length once per room
+    if (!debateMetaCache[debateId]) {
+      const meta = await fetchDebateMeta(debateId);
+      room.debateName = meta.name;
+      room.timePerTurn = meta.timePerTurn;
+    }
 
     // Always record the username in case this player disconnects later
     room.playerNames[user.id] = user.username;
@@ -295,9 +463,10 @@ io.on("connection", (socket: Socket) => {
       socket.join(roomKey(debateId));
       console.log(`🔄 ${user.username} reconnected to active debate ${debateId}`);
 
-      // Cancel any grace period timer started for this user
+      // Cancel any grace period timer started for this user, resume the clock
       clearGracePeriod(debateId);
       io.to(roomKey(debateId)).emit("opponent_reconnected");
+      resumeTurnTimer(debateId);
 
       // Re-send debate_started so the reconnecting client restores its state
       const players = Object.entries(room.sides).map(([id, side]) => ({
@@ -308,9 +477,13 @@ io.on("connection", (socket: Socket) => {
 
       socket.emit("debate_started", {
         debateId,
+        debateName: room.debateName,
+        timePerTurn: room.timePerTurn,
         players,
         startTime: null,
         reconnect: true,
+        currentTurnUserId: room.currentTurn,
+        secondsLeft: room.turnSecondsLeft,
       });
 
       return;
@@ -329,12 +502,32 @@ io.on("connection", (socket: Socket) => {
     emitLobbyState(debateId);
   });
 
+  // ── choose_side ────────────────────────────────────────────────────────────
+  socket.on("choose_side", ({ debateId, side }: { debateId: string; side: Side }) => {
+    if (!debateId || (side !== "for" && side !== "against")) return;
+
+    const room = rooms[debateId];
+    if (!room || room.status !== "waiting") return;
+
+    room.sideChoice[user.id] = side;
+    // Changing sides invalidates any previous readiness — make them re-confirm
+    room.readyState[user.id] = false;
+
+    console.log(`🎭 ${user.username} chose "${side}" in debate ${debateId}`);
+    emitLobbyState(debateId);
+  });
+
   // ── player_ready ───────────────────────────────────────────────────────────
   socket.on("player_ready", ({ debateId }: { debateId: string }) => {
     if (!debateId) return;
 
     const room = rooms[debateId];
     if (!room || room.status !== "waiting") return;
+
+    if (!room.sideChoice[user.id]) {
+      socket.emit("side_conflict", { message: "Choose a side before readying up." });
+      return;
+    }
 
     room.readyState[user.id] = true;
     console.log(`✋ ${user.username} ready in debate ${debateId}`);
@@ -343,14 +536,31 @@ io.on("connection", (socket: Socket) => {
     const readyCount = players.filter((p) => room.readyState[p.id]).length;
 
     if (players.length >= MAX_PLAYERS && readyCount >= MAX_PLAYERS) {
+      const sideEntries = players.map((p) => room.sideChoice[p.id]);
+      const sidesDiffer =
+        sideEntries[0] && sideEntries[1] && sideEntries[0] !== sideEntries[1];
+
+      if (!sidesDiffer) {
+        // Both picked the same side (or somehow one is missing) — can't start
+        io.to(roomKey(debateId)).emit("side_conflict", {
+          message: "Both players picked the same side. One of you needs to switch.",
+        });
+        // Force everyone to re-ready after sorting it out
+        for (const p of players) room.readyState[p.id] = false;
+        emitLobbyState(debateId);
+        return;
+      }
+
       console.log(`🔥 Starting debate ${debateId}`);
 
-      // Assign sides randomly
-      const shuffled = [...players].sort(() => Math.random() - 0.5);
+      const forPlayer = players.find((p) => room.sideChoice[p.id] === "for")!;
+      const againstPlayer = players.find((p) => room.sideChoice[p.id] === "against")!;
+
       room.sides = {
-        [shuffled[0].id]: "for",
-        [shuffled[1].id]: "against",
+        [forPlayer.id]: "for",
+        [againstPlayer.id]: "against",
       };
+      room.turnOrder = [forPlayer.id, againstPlayer.id];
 
       room.status = "active";
       room.readyState = {};
@@ -362,10 +572,15 @@ io.on("connection", (socket: Socket) => {
 
       io.to(roomKey(debateId)).emit("debate_started", {
         debateId,
+        debateName: room.debateName,
+        timePerTurn: room.timePerTurn,
         players: payload,
         startTime: new Date().toISOString(),
         reconnect: false,
       });
+
+      // "For" opens the debate
+      startTurn(debateId, forPlayer.id);
 
       return;
     }
@@ -393,12 +608,20 @@ io.on("connection", (socket: Socket) => {
     const room = rooms[debateId];
     if (!room || room.status !== "active") return;
 
+    if (room.currentTurn !== user.id) {
+      socket.emit("turn_error", { message: "It's not your turn yet." });
+      return;
+    }
+
     io.to(roomKey(debateId)).emit("new_message", {
       userId: user.id,
       username: user.username,
       content: content.trim(),
       timestamp: new Date().toISOString(),
     });
+
+    // Sending your argument uses up your turn
+    advanceTurn(debateId);
   });
 
   // ── leave_debate ───────────────────────────────────────────────────────────
