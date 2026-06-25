@@ -13,11 +13,12 @@ export default function JoinDebate() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Pre-fill code if coming from landing page join-by-code form
+  // FIX: Only pre-fill from ?code= param, and only if it's exactly 4 digits.
+  // Previously this also checked ?topic= which could receive slugs like "ai-finance".
   useEffect(() => {
     const codeParam = searchParams.get("code");
-    if (codeParam && /^\d{1,4}$/.test(codeParam)) {
-      setCode(codeParam.slice(0, 4));
+    if (codeParam && /^\d{4}$/.test(codeParam)) {
+      setCode(codeParam);
     }
   }, [searchParams]);
 
@@ -102,10 +103,7 @@ export default function JoinDebate() {
           <div className="mb-3">
             <div className="relative">
               {/* Visual digit boxes */}
-              <div
-                className="grid grid-cols-4 gap-3 mb-3"
-                aria-hidden="true"
-              >
+              <div className="grid grid-cols-4 gap-3 mb-3" aria-hidden="true">
                 {[0, 1, 2, 3].map((i) => (
                   <div
                     key={i}
@@ -130,6 +128,8 @@ export default function JoinDebate() {
                 inputMode="numeric"
                 value={code}
                 onChange={(e) => {
+                  // FIX: strip non-digits explicitly — previously used toUpperCase()
+                  // which allowed letters through and caused bad codes
                   const val = e.target.value.replace(/\D/g, "").slice(0, 4);
                   setCode(val);
                   setError("");

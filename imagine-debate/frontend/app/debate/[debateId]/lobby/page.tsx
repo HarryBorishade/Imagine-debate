@@ -31,15 +31,26 @@ export default function DebateLobby() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [timeElapsed, setTimeElapsed] = useState(0);
-  // iAmReady is derived from the server's lobby_state, not local-only state,
-  // so it survives reconnects correctly
   const [iAmReady, setIAmReady] = useState(false);
   const [myUserId, setMyUserId] = useState<string | null>(null);
 
-  const debateCode = debateId.slice(-4).toUpperCase().padStart(4, "0");
+  // FIX: Guard against invalid debateId values (e.g. "new" from /debate/new/lobby).
+  // If the URL segment isn't exactly 4 digits, redirect back to the create page
+  // immediately — this is what caused the "0NEW" display bug.
+  useEffect(() => {
+    if (!/^\d{4}$/.test(debateId)) {
+      router.replace("/debate/new");
+    }
+  }, [debateId, router]);
+
+  // debateCode is now safe to derive since we've guarded above
+  const debateCode = debateId.padStart(4, "0");
 
   // ── 1. Load session + connect socket ─────────────────────────────────────
   useEffect(() => {
+    // Don't attempt socket connection if debateId is invalid
+    if (!/^\d{4}$/.test(debateId)) return;
+
     let cancelled = false;
 
     async function init() {
@@ -75,12 +86,10 @@ export default function DebateLobby() {
         s.emit("join_debate", { debateId });
       });
 
-      // Server sends this after every join or ready-state change
       s.on("lobby_state", (data: { players: Player[]; status: string }) => {
         console.log("📋 Lobby state:", data);
         setPlayers(data.players);
 
-        // Sync iAmReady from server truth — survives reconnects
         const me = data.players.find((p) => p.id === session.user.id);
         if (me) setIAmReady(me.ready);
 
@@ -88,14 +97,12 @@ export default function DebateLobby() {
           setStage("opponent-joined");
         } else {
           setStage("waiting");
-          setIAmReady(false); // reset if opponent left
+          setIAmReady(false);
         }
       });
 
-      // FIX: was listening for "both_ready" — server now emits "debate_started"
       s.on("debate_started", (payload: DebateStartedPayload) => {
         console.log("🔥 Debate started — navigating to room", payload);
-        // Pass side assignment via sessionStorage so the room page can pick it up
         const myEntry = payload.players.find((p) => p.id === session.user.id);
         if (myEntry) {
           sessionStorage.setItem(`debate_${debateId}_side`, myEntry.side);
@@ -104,14 +111,12 @@ export default function DebateLobby() {
         setStage("countdown");
       });
 
-      // Room was full or debate already in progress
       s.on("join_error", (data: { message: string }) => {
         console.warn("Join error:", data.message);
         setError(data.message);
         setLoading(false);
       });
 
-      // Opponent left — reset lobby UI
       s.on("debate_abandoned", (data: { message: string }) => {
         console.log("⚠️ Debate abandoned:", data.message);
         setStage("waiting");
@@ -164,8 +169,6 @@ export default function DebateLobby() {
   const handleReady = () => {
     if (!socketRef.current || iAmReady) return;
     socketRef.current.emit("player_ready", { debateId });
-    // Don't set iAmReady locally — wait for server to echo it back in lobby_state
-    // so it's always in sync with server truth
   };
 
   const handleUnready = () => {
@@ -175,27 +178,32 @@ export default function DebateLobby() {
 
   const handleCancel = () => {
     socketRef.current?.emit("leave_debate", { debateId });
-    router.push("/dashboard");
+    router.push("/");
   };
 
   // ── Render guards ─────────────────────────────────────────────────────────
 
+  // Show nothing while redirect is happening for invalid debateId
+  if (!/^\d{4}$/.test(debateId)) {
+    return null;
+  }
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-900 to-slate-800">
-        <div className="text-white text-lg">Loading debate...</div>
+      <div className="flex items-center justify-center min-h-screen bg-[#0d1117]">
+        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-900 to-slate-800">
+      <div className="flex items-center justify-center min-h-screen bg-[#0d1117]">
         <div className="text-center">
-          <div className="text-red-400 text-lg mb-4">{error}</div>
+          <div className="text-rose-400 text-lg mb-4">{error}</div>
           <button
             onClick={() => router.back()}
-            className="px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-all"
+            className="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition-all"
           >
             Go Back
           </button>
@@ -208,17 +216,17 @@ export default function DebateLobby() {
   const seconds = timeElapsed % 60;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-[#0d1117] flex items-center justify-center p-6">
       <div className="max-w-2xl w-full">
 
         {/* ── STAGE 1: Waiting for opponent ── */}
         {stage === "waiting" && (
-          <div className="bg-slate-700/50 backdrop-blur border border-slate-600 rounded-lg p-12 text-center">
+          <div className="bg-white/[0.03] backdrop-blur border border-white/[0.07] rounded-2xl p-12 text-center">
             <div className="mb-8">
               <div className="relative w-16 h-16 mx-auto">
-                <div className="absolute inset-0 border-4 border-transparent border-t-blue-500 border-r-blue-500 rounded-full animate-spin" />
+                <div className="absolute inset-0 border-4 border-transparent border-t-indigo-500 border-r-indigo-500 rounded-full animate-spin" />
                 <div
-                  className="absolute inset-2 border-4 border-transparent border-b-blue-400 border-l-blue-400 rounded-full animate-spin"
+                  className="absolute inset-2 border-4 border-transparent border-b-indigo-400 border-l-indigo-400 rounded-full animate-spin"
                   style={{ animationDirection: "reverse" }}
                 />
               </div>
@@ -227,47 +235,46 @@ export default function DebateLobby() {
             <h2 className="text-3xl font-bold text-white mb-2">
               Waiting for Opponent
             </h2>
-            <p className="text-slate-300 mb-8">
-              Your debate room is ready. Share the code below or wait for someone to join.
+            <p className="text-white/40 mb-8 text-sm leading-relaxed">
+              Your debate room is ready. Share the code below with your opponent.
             </p>
 
-            <div className="bg-gradient-to-r from-blue-600/20 to-purple-600/20 border-2 border-blue-500 rounded-lg p-8 mb-8">
-              <p className="text-slate-400 text-sm uppercase tracking-wider mb-2">
-                Debate Code
+            <div className="bg-indigo-600/[0.07] border border-indigo-500/20 rounded-2xl p-8 mb-8">
+              <p className="text-white/30 text-xs uppercase tracking-widest mb-3">
+                Room Code
               </p>
-              <div className="text-5xl font-bold text-blue-400 font-mono tracking-widest mb-4">
+              <div className="text-6xl font-bold text-indigo-400 font-mono tracking-[0.25em] mb-5">
                 {debateCode}
               </div>
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(debateCode);
-                  alert("Code copied!");
                 }}
-                className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-all"
+                className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-all"
               >
-                Copy Code
+                Copy code
               </button>
             </div>
 
-            <div className="text-slate-400 text-sm mb-8">
-              Waiting for {minutes}m {seconds.toString().padStart(2, "0")}s
+            <div className="text-white/25 text-sm mb-8">
+              Waiting {minutes}m {seconds.toString().padStart(2, "0")}s
             </div>
 
             <button
               onClick={handleCancel}
-              className="px-6 py-3 rounded-lg bg-slate-600 hover:bg-slate-500 text-white font-semibold transition-all"
+              className="px-6 py-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.08] border border-white/[0.08] text-white/60 hover:text-white text-sm font-medium transition-all"
             >
-              Cancel Debate
+              Cancel
             </button>
           </div>
         )}
 
         {/* ── STAGE 2: Opponent joined — ready check ── */}
         {stage === "opponent-joined" && (
-          <div className="bg-slate-700/50 backdrop-blur border border-slate-600 rounded-lg p-12 text-center">
+          <div className="bg-white/[0.03] backdrop-blur border border-white/[0.07] rounded-2xl p-12 text-center">
             <div className="mb-8">
-              <div className="inline-block p-4 bg-green-500/20 border border-green-500 rounded-full mb-6">
-                <svg className="w-12 h-12 text-green-400" fill="currentColor" viewBox="0 0 20 20">
+              <div className="inline-block p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-full mb-6">
+                <svg className="w-12 h-12 text-emerald-400" fill="currentColor" viewBox="0 0 20 20">
                   <path
                     fillRule="evenodd"
                     d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
@@ -278,63 +285,66 @@ export default function DebateLobby() {
             </div>
 
             <h2 className="text-3xl font-bold text-white mb-4">
-              Opponent Found! 🎉
+              Opponent joined!
             </h2>
-            <p className="text-slate-300 mb-8">
-              Your opponent has joined. Click "Ready" when you're prepared to begin the debate.
+            <p className="text-white/40 mb-8 text-sm leading-relaxed">
+              Click Ready when you're prepared to begin.
             </p>
 
-            <div className="bg-slate-600/50 rounded-lg p-6 mb-8 text-left border border-slate-600">
-              <h3 className="font-semibold text-white mb-4">📋 Players</h3>
-              <div className="space-y-2 text-slate-300">
+            <div className="bg-white/[0.03] rounded-xl p-6 mb-8 text-left border border-white/[0.06]">
+              <h3 className="text-xs font-semibold uppercase tracking-widest text-white/30 mb-4">Players</h3>
+              <div className="space-y-3">
                 {players.map((p) => (
-                  <div key={p.id} className="flex justify-between">
-                    <span>{p.username}</span>
-                    <span>{p.ready ? "✅ Ready" : "⏳ Not Ready"}</span>
+                  <div key={p.id} className="flex items-center justify-between">
+                    <span className="text-sm text-white/70">{p.username}</span>
+                    <span className={`text-xs font-medium px-2.5 py-1 rounded-lg ${
+                      p.ready
+                        ? "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30"
+                        : "bg-white/[0.05] text-white/30"
+                    }`}>
+                      {p.ready ? "Ready" : "Not ready"}
+                    </span>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Ready / Unready toggle */}
             {!iAmReady ? (
               <button
                 onClick={handleReady}
-                className="px-8 py-4 rounded-lg text-white font-bold text-lg transition-all mb-3 bg-green-600 hover:bg-green-700"
+                className="w-full px-8 py-4 rounded-xl text-white font-bold text-base transition-all mb-3 bg-emerald-600 hover:bg-emerald-500"
               >
-                I'm Ready!
+                I'm Ready
               </button>
             ) : (
               <button
                 onClick={handleUnready}
-                className="px-8 py-4 rounded-lg text-white font-bold text-lg transition-all mb-3 bg-yellow-600 hover:bg-yellow-700"
+                className="w-full px-8 py-4 rounded-xl text-white font-bold text-base transition-all mb-3 bg-amber-600 hover:bg-amber-500"
               >
-                Waiting for opponent... (click to unready)
+                Waiting for opponent… (tap to unready)
               </button>
             )}
 
-            <br />
-
             <button
               onClick={handleCancel}
-              className="px-8 py-4 rounded-lg bg-slate-600 hover:bg-slate-500 text-white font-semibold transition-all"
+              className="w-full px-6 py-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.08] border border-white/[0.08] text-white/50 hover:text-white text-sm font-medium transition-all"
             >
-              Cancel Debate
+              Cancel
             </button>
           </div>
         )}
 
         {/* ── STAGE 3: Countdown ── */}
         {stage === "countdown" && (
-          <div className="bg-slate-700/50 backdrop-blur border border-slate-600 rounded-lg p-12 text-center">
-            <h2 className="text-2xl font-bold text-white mb-8">
-              Debate Starting In...
+          <div className="bg-white/[0.03] backdrop-blur border border-white/[0.07] rounded-2xl p-12 text-center">
+            <h2 className="text-xl font-semibold text-white/60 mb-8 tracking-widest uppercase text-sm">
+              Debate starting in
             </h2>
-            <div className="text-9xl font-bold text-blue-400 mb-12 animate-pulse">
+            <div className="text-9xl font-bold text-indigo-400 mb-12 tabular-nums">
               {countdown}
             </div>
-            <p className="text-slate-300">
-              Get ready! The timer will start once the debate begins.
+            <p className="text-white/30 text-sm">
+              Get ready — the timer starts when the debate begins.
             </p>
           </div>
         )}

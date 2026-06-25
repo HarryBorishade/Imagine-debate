@@ -100,7 +100,7 @@ export default function Home() {
       router.push("/auth/signup");
       return;
     }
-    router.push(`/debate/new?topic=${topicId}`);
+    router.push(`/debate/create?topic=${topicId}`);
   };
 
   const handleJoinDebate = (e: React.FormEvent) => {
@@ -109,11 +109,16 @@ export default function Home() {
       router.push("/auth/signup");
       return;
     }
-    if (!joinCode.trim()) {
+    const trimmed = joinCode.trim();
+    if (!trimmed) {
       setJoinError("Please enter a room code.");
       return;
     }
-    router.push(`/debate/join?code=${joinCode.trim().toUpperCase()}`);
+    if (!/^\d{4}$/.test(trimmed)) {
+      setJoinError("Code must be exactly 4 digits.");
+      return;
+    }
+    router.push(`/debate/join?code=${trimmed}`);
   };
 
   if (loading) {
@@ -198,7 +203,7 @@ export default function Home() {
         <div className="mt-10 flex flex-col sm:flex-row gap-4 max-w-2xl">
           {/* Start a debate */}
           <Link
-            href={user ? "/debate/new" : "/auth/signup"}
+            href={user ? "/debate/create" : "/auth/signup"}
             className="flex-1 flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition-all text-sm"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -208,19 +213,19 @@ export default function Home() {
           </Link>
 
           {/* Join by code */}
-          <form
-            onSubmit={handleJoinDebate}
-            className="flex-1 flex gap-2"
-          >
+          <form onSubmit={handleJoinDebate} className="flex-1 flex gap-2">
             <input
               type="text"
+              inputMode="numeric"
               value={joinCode}
               onChange={(e) => {
-                setJoinCode(e.target.value.toUpperCase());
+                // Only allow digits, max 4
+                const val = e.target.value.replace(/\D/g, "").slice(0, 4);
+                setJoinCode(val);
                 setJoinError("");
               }}
-              placeholder="Room code (e.g. XK92)"
-              maxLength={8}
+              placeholder="4-digit code"
+              maxLength={4}
               className="flex-1 px-4 py-3.5 rounded-xl bg-white/[0.05] border border-white/[0.08] text-white placeholder-white/25 text-sm font-mono tracking-widest focus:outline-none focus:border-indigo-500 focus:bg-white/[0.07] transition-all"
             />
             <button
@@ -300,7 +305,7 @@ export default function Home() {
         <div className="flex items-baseline justify-between mb-8">
           <h2 className="text-xl font-semibold">Featured topics</h2>
           <Link
-            href={user ? "/debate/new" : "/auth/signup"}
+            href={user ? "/debate/create" : "/auth/signup"}
             className="text-sm text-indigo-400 hover:text-indigo-300 transition-colors"
           >
             Propose your own →
@@ -346,8 +351,9 @@ export default function Home() {
                 >
                   Start debate
                 </button>
+                {/* FIX: was /debate/join?topic=${debate.id} which passed a slug as a code */}
                 <Link
-                  href={`/debate/join?topic=${debate.id}`}
+                  href="/debate/join"
                   className="px-4 py-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.10] text-white/60 hover:text-white text-xs font-medium transition-all"
                 >
                   Join existing
