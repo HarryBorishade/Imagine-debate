@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+
+node_modules/
+**/node_modules/
+
+Database stuff.txt
+
+.next/
+dist/
+build/
+
+*.log
+.DS_Store
+.vscode/
