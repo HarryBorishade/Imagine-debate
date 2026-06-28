@@ -83,7 +83,7 @@ io.use((socket, next) => {
       return next(new Error("Authentication error: no token"));
     }
 
-    const decoded = jwt.decode(token) as JwtPayload | null;
+    const decoded = jwt.verify(token, process.env.SUPABASE_JWT_SECRET!) as JwtPayload | null;
 
     if (!decoded?.sub) {
       return next(new Error("Authentication error: invalid token"));
@@ -789,7 +789,7 @@ io.on("connection", (socket: Socket) => {
   });
 });
 
-app.get("/health", (_req, res) => {
+app.get("/health", (_req: express.Request, res: express.Response) => {
   res.json({
     status: "ok",
     activeRooms: Object.keys(rooms).length,
