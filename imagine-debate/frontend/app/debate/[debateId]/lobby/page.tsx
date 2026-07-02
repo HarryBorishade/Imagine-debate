@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { io, Socket } from "socket.io-client";
 import { supabase } from "@/supabaseClient";
+import { getSocketUrl } from "@/lib/socketUrl";
 
 interface Player {
   id: string;
@@ -14,21 +15,33 @@ interface Player {
 
 interface LobbyStatePayload {
   players: Player[];
-  status: "waiting" | "active";
+  status: "waiting" | "active" | "completed";
   debateName: string;
   timePerTurn: number;
+}
+
+interface DebateStage {
+  argumentPart: string;
+  label: string;
 }
 
 interface DebateStartedPayload {
   debateId: string;
   debateName: string;
   players: Array<Player & { side: "for" | "against" }>;
+  stages?: DebateStage[];
   startTime: string | null;
   reconnect: boolean;
   timePerTurn: number;
   currentTurnUserId?: string;
   secondsLeft?: number;
+  argumentPart?: string | null;
+  argumentPartLabel?: string | null;
+  stageIndex?: number;
+  turnIndex?: number;
 }
+
+type LobbyStage = "waiting" | "opponent-joined" | "countdown";
 
 export default function DebateLobby() {
   const params = useParams();
@@ -38,7 +51,7 @@ export default function DebateLobby() {
   const socketRef = useRef<Socket | null>(null);
 
   const [players, setPlayers] = useState<Player[]>([]);
-  const [stage, setStage] = useState<"waiting" | "opponent-joined" | "countdown">("waiting");
+  const [stage, setStage] = useState<LobbyStage>("waiting");
   const [countdown, setCountdown] = useState(3);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -49,22 +62,24 @@ export default function DebateLobby() {
   const [mySide, setMySide] = useState<"for" | "against" | null>(null);
   const [readyError, setReadyError] = useState("");
 
-  useEffect(() => {
-    if (!/^\d{4}$/.test(debateId)) {
-      router.replace("/debate/create");
-    }
-  }, [debateId, router]);
-
+  const isValidDebateId = /^\d{4}$/.test(debateId);
   const debateCode = debateId.padStart(4, "0");
 
   useEffect(() => {
-    if (!/^\d{4}$/.test(debateId)) return;
+    if (!isValidDebateId) {
+      router.replace("/debate/create");
+    }
+  }, [isValidDebateId, router]);
+
+  useEffect(() => {
+    if (!isValidDebateId) return;
 
     let cancelled = false;
 
     async function init() {
       setLoading(true);
       setError("");
+      setReadyError("");
 
       const {
         data: { session },
@@ -80,14 +95,15 @@ export default function DebateLobby() {
 
       setMyUserId(session.user.id);
 
-      const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000";
+      const socketUrl = getSocketUrl();
 
       const socket = io(socketUrl, {
         auth: { token: session.access_token },
-        transports: ["websocket"],
+        transports: ["websocket", "polling"],
         reconnection: true,
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
       });
 
       socketRef.current = socket;
@@ -116,7 +132,19 @@ export default function DebateLobby() {
           setMySide(null);
         }
 
+        if (data.debateName) {
+          sessionStorage.setItem(`debate_${debateId}_topic`, data.debateName);
+        }
+
+        sessionStorage.setItem(
+          `debate_${debateId}_timePerTurn`,
+          String(data.timePerTurn)
+        );
+
         if (data.status === "active") {
+          setStage("countdown");
+          setCountdown(3);
+          setLoading(false);
           return;
         }
 
@@ -132,16 +160,26 @@ export default function DebateLobby() {
       socket.on("debate_started", (payload: DebateStartedPayload) => {
         const myEntry = payload.players.find((p) => p.id === session.user.id);
 
-        if (myEntry) {
-          sessionStorage.setItem(`debate_${debateId}_side`, myEntry.side);
+        if (!myEntry) {
+          setError("You are not a participant in this debate.");
+          setLoading(false);
+          return;
         }
 
+        sessionStorage.setItem(`debate_${debateId}_side`, myEntry.side);
+
         if (payload.debateName) {
-          sessionStorage.setItem(`debate_${debateId}_topic`, payload.debateName);
+          sessionStorage.setItem(
+            `debate_${debateId}_topic`,
+            payload.debateName
+          );
         }
 
         if (payload.startTime) {
-          sessionStorage.setItem(`debate_${debateId}_startTime`, payload.startTime);
+          sessionStorage.setItem(
+            `debate_${debateId}_startTime`,
+            payload.startTime
+          );
         }
 
         sessionStorage.setItem(
@@ -149,7 +187,58 @@ export default function DebateLobby() {
           String(payload.timePerTurn)
         );
 
+        if (payload.stages) {
+          sessionStorage.setItem(
+            `debate_${debateId}_stages`,
+            JSON.stringify(payload.stages)
+          );
+        }
+
+        if (payload.currentTurnUserId) {
+          sessionStorage.setItem(
+            `debate_${debateId}_currentTurnUserId`,
+            payload.currentTurnUserId
+          );
+        }
+
+        if (typeof payload.secondsLeft === "number") {
+          sessionStorage.setItem(
+            `debate_${debateId}_secondsLeft`,
+            String(payload.secondsLeft)
+          );
+        }
+
+        if (payload.argumentPart) {
+          sessionStorage.setItem(
+            `debate_${debateId}_argumentPart`,
+            payload.argumentPart
+          );
+        }
+
+        if (payload.argumentPartLabel) {
+          sessionStorage.setItem(
+            `debate_${debateId}_argumentPartLabel`,
+            payload.argumentPartLabel
+          );
+        }
+
+        if (typeof payload.stageIndex === "number") {
+          sessionStorage.setItem(
+            `debate_${debateId}_stageIndex`,
+            String(payload.stageIndex)
+          );
+        }
+
+        if (typeof payload.turnIndex === "number") {
+          sessionStorage.setItem(
+            `debate_${debateId}_turnIndex`,
+            String(payload.turnIndex)
+          );
+        }
+
         setStage("countdown");
+        setCountdown(3);
+        setLoading(false);
       });
 
       socket.on("side_conflict", ({ message }: { message: string }) => {
@@ -174,13 +263,10 @@ export default function DebateLobby() {
     return () => {
       cancelled = true;
 
-      // Important:
-      // Do not emit leave_debate here.
-      // This cleanup also runs when moving from lobby to room.
       socketRef.current?.disconnect();
       socketRef.current = null;
     };
-  }, [debateId]);
+  }, [debateId, isValidDebateId]);
 
   useEffect(() => {
     if (stage !== "countdown") return;
@@ -208,17 +294,17 @@ export default function DebateLobby() {
   }, [stage]);
 
   const handleChooseSide = (side: "for" | "against") => {
-  if (!socketRef.current) return;
+    if (!socketRef.current) return;
 
-  setReadyError("");
-  setMySide(side);
-  setIAmReady(false);
+    setReadyError("");
+    setMySide(side);
+    setIAmReady(false);
 
-  socketRef.current.emit("choose_side", {
-    debateId,
-    side,
-  });
-};
+    socketRef.current.emit("choose_side", {
+      debateId,
+      side,
+    });
+  };
 
   const handleReady = () => {
     if (!socketRef.current || iAmReady) return;
@@ -238,13 +324,28 @@ export default function DebateLobby() {
     setIAmReady(false);
   };
 
+  const clearSession = () => {
+    sessionStorage.removeItem(`debate_${debateId}_side`);
+    sessionStorage.removeItem(`debate_${debateId}_startTime`);
+    sessionStorage.removeItem(`debate_${debateId}_topic`);
+    sessionStorage.removeItem(`debate_${debateId}_timePerTurn`);
+    sessionStorage.removeItem(`debate_${debateId}_stages`);
+    sessionStorage.removeItem(`debate_${debateId}_currentTurnUserId`);
+    sessionStorage.removeItem(`debate_${debateId}_secondsLeft`);
+    sessionStorage.removeItem(`debate_${debateId}_argumentPart`);
+    sessionStorage.removeItem(`debate_${debateId}_argumentPartLabel`);
+    sessionStorage.removeItem(`debate_${debateId}_stageIndex`);
+    sessionStorage.removeItem(`debate_${debateId}_turnIndex`);
+  };
+
   const handleCancel = () => {
     socketRef.current?.emit("leave_debate", { debateId });
     socketRef.current?.disconnect();
+    clearSession();
     router.push("/dashboard");
   };
 
-  if (!/^\d{4}$/.test(debateId)) return null;
+  if (!isValidDebateId) return null;
 
   if (loading) {
     return (
@@ -259,6 +360,7 @@ export default function DebateLobby() {
       <div className="flex items-center justify-center min-h-screen bg-[#0d1117] p-6">
         <div className="text-center max-w-sm">
           <div className="text-rose-400 text-lg mb-4">{error}</div>
+
           <button
             onClick={() => router.push("/dashboard")}
             className="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition-all"
@@ -272,7 +374,6 @@ export default function DebateLobby() {
 
   const minutes = Math.floor(timeElapsed / 60);
   const seconds = timeElapsed % 60;
-
   const opponentSide = players.find((p) => p.id !== myUserId)?.side ?? null;
 
   return (
@@ -295,7 +396,8 @@ export default function DebateLobby() {
             </h2>
 
             <p className="text-white/40 mb-8 text-sm leading-relaxed">
-              Your debate room is ready. Share the code below with your opponent.
+              Your debate room is ready. Share the code below with your
+              opponent.
             </p>
 
             <div className="bg-indigo-600/[0.07] border border-indigo-500/20 rounded-2xl p-8 mb-8">
@@ -481,7 +583,8 @@ export default function DebateLobby() {
             </div>
 
             <p className="text-white/30 text-sm">
-              "For" argues first. The timer starts when you enter the room.
+              "For" begins with the Opening Statement. The debate will then move
+              through each stage in order.
             </p>
           </div>
         )}

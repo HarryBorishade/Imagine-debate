@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/supabaseClient";
 
-export default function JoinDebate() {
+function JoinDebateContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -190,5 +190,13 @@ export default function JoinDebate() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function JoinDebate() {
+  return (
+    <Suspense fallback={null}>
+      <JoinDebateContent />
+    </Suspense>
   );
 }

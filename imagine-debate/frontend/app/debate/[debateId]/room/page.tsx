@@ -4,13 +4,43 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { io, Socket } from "socket.io-client";
 import { supabase } from "@/supabaseClient";
+import { getSocketUrl } from "@/lib/socketUrl";
 
 interface Message {
+  id?: number;
+  debateId?: number;
   userId?: string;
   username?: string;
+  side?: "for" | "against" | null;
+  argumentPart?: string;
+  argumentPartLabel?: string;
+  stageIndex?: number;
+  turnIndex?: number;
   content: string;
   timestamp?: string;
   system?: boolean;
+}
+
+interface DebateStage {
+  argumentPart: string;
+  label: string;
+}
+
+interface TurnPayload {
+  debateId: string;
+  debateName: string;
+  currentTurnUserId: string;
+  currentTurnUsername: string;
+  currentSide: "for" | "against" | null;
+  argumentPart: string | null;
+  argumentPartLabel: string | null;
+  stageIndex: number;
+  speakerIndex: number;
+  turnIndex: number;
+  totalStages: number;
+  secondsLeft: number;
+  timePerTurn: number;
+  resumed?: boolean;
 }
 
 interface DebateResult {
@@ -33,10 +63,15 @@ interface DebateStartedPayload {
     username: string;
     side: "for" | "against";
   }>;
+  stages?: DebateStage[];
   startTime: string | null;
   reconnect: boolean;
   currentTurnUserId?: string;
   secondsLeft?: number;
+  argumentPart?: string | null;
+  argumentPartLabel?: string | null;
+  stageIndex?: number;
+  turnIndex?: number;
 }
 
 type PageState = "loading" | "error" | "debate" | "result";
@@ -65,10 +100,24 @@ export default function DebateRoom() {
   const [gracePeriod, setGracePeriod] = useState<GracePeriod | null>(null);
   const [result, setResult] = useState<DebateResult | null>(null);
 
-  const [currentTurnUserId, setCurrentTurnUserId] = useState<string | null>(null);
+  const [currentTurnUserId, setCurrentTurnUserId] = useState<string | null>(
+    null
+  );
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [timePerTurn, setTimePerTurn] = useState<number | null>(null);
   const [turnError, setTurnError] = useState("");
+
+  const [currentSide, setCurrentSide] = useState<"for" | "against" | null>(
+    null
+  );
+  const [argumentPart, setArgumentPart] = useState<string | null>(null);
+  const [argumentPartLabel, setArgumentPartLabel] = useState<string | null>(
+    null
+  );
+  const [stageIndex, setStageIndex] = useState<number | null>(null);
+  const [turnIndex, setTurnIndex] = useState<number | null>(null);
+  const [totalStages, setTotalStages] = useState<number | null>(null);
+  const [debateCompleted, setDebateCompleted] = useState(false);
 
   const addSystemMessage = useCallback((content: string) => {
     setMessages((prev) => [...prev, { system: true, content }]);
@@ -121,7 +170,7 @@ export default function DebateRoom() {
       if (storedTopic) setDebateName(storedTopic);
       if (storedTimePerTurn) setTimePerTurn(Number(storedTimePerTurn));
 
-      const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000";
+      const socketUrl = getSocketUrl();
 
       const socket = io(socketUrl, {
         auth: { token: session.access_token },
@@ -166,6 +215,14 @@ export default function DebateRoom() {
           String(payload.timePerTurn)
         );
 
+        if (payload.stages) {
+          sessionStorage.setItem(
+            `debate_${debateId}_stages`,
+            JSON.stringify(payload.stages)
+          );
+          setTotalStages(payload.stages.length);
+        }
+
         if (payload.currentTurnUserId) {
           setCurrentTurnUserId(payload.currentTurnUserId);
         }
@@ -174,8 +231,25 @@ export default function DebateRoom() {
           setSecondsLeft(payload.secondsLeft);
         }
 
+        if (payload.argumentPartLabel) {
+          setArgumentPartLabel(payload.argumentPartLabel);
+        }
+
+        if (payload.argumentPart) {
+          setArgumentPart(payload.argumentPart);
+        }
+
+        if (typeof payload.stageIndex === "number") {
+          setStageIndex(payload.stageIndex);
+        }
+
+        if (typeof payload.turnIndex === "number") {
+          setTurnIndex(payload.turnIndex);
+        }
+
         setGracePeriod(null);
         setResult(null);
+        setDebateCompleted(false);
         setPageState("debate");
 
         if (payload.reconnect) {
@@ -183,27 +257,30 @@ export default function DebateRoom() {
         }
       });
 
-      socket.on(
-        "turn_started",
-        (data: {
-          debateId: string;
-          debateName: string;
-          currentTurnUserId: string;
-          currentTurnUsername: string;
-          secondsLeft: number;
-          timePerTurn: number;
-          resumed?: boolean;
-        }) => {
-          setCurrentTurnUserId(data.currentTurnUserId);
-          setSecondsLeft(data.secondsLeft);
-          setTimePerTurn(data.timePerTurn);
-          setDebateName(data.debateName);
+      socket.on("turn_started", (data: TurnPayload) => {
+        setCurrentTurnUserId(data.currentTurnUserId);
+        setSecondsLeft(data.secondsLeft);
+        setTimePerTurn(data.timePerTurn);
+        setDebateName(data.debateName);
 
-          if (!data.resumed) {
-            addSystemMessage(`🎤 ${data.currentTurnUsername}'s turn started.`);
-          }
+        setCurrentSide(data.currentSide);
+        setArgumentPart(data.argumentPart);
+        setArgumentPartLabel(data.argumentPartLabel);
+        setStageIndex(data.stageIndex);
+        setTurnIndex(data.turnIndex);
+        setTotalStages(data.totalStages);
+
+        setGracePeriod(null);
+        setDebateCompleted(false);
+
+        if (!data.resumed) {
+          addSystemMessage(
+            `🎤 ${data.argumentPartLabel || "Turn"} — ${
+              data.currentSide?.toUpperCase() || "PLAYER"
+            }: ${data.currentTurnUsername}'s turn.`
+          );
         }
-      );
+      });
 
       socket.on(
         "turn_tick",
@@ -223,15 +300,45 @@ export default function DebateRoom() {
           debateId: string;
           userId: string;
           username?: string;
+          argumentPart?: string | null;
+          argumentPartLabel?: string | null;
+          stageIndex?: number;
+          turnIndex?: number;
         }) => {
           addSystemMessage(
-            `⏰ ${data.username || "A player"} ran out of time.`
+            `⏰ ${data.username || "A player"} ran out of time during ${
+              data.argumentPartLabel || "their turn"
+            }.`
+          );
+        }
+      );
+
+      socket.on(
+        "turn_passed",
+        (data: {
+          debateId: string;
+          userId: string;
+          username?: string;
+          argumentPart?: string | null;
+          argumentPartLabel?: string | null;
+          stageIndex?: number;
+          turnIndex?: number;
+        }) => {
+          addSystemMessage(
+            `${data.username || "A player"} passed during ${
+              data.argumentPartLabel || "their turn"
+            }.`
           );
         }
       );
 
       socket.on("turn_error", ({ message }: { message: string }) => {
         setTurnError(message || "It is not your turn yet.");
+        setTimeout(() => setTurnError(""), 2500);
+      });
+
+      socket.on("message_error", ({ message }: { message: string }) => {
+        setTurnError(message || "Your message could not be sent.");
         setTimeout(() => setTurnError(""), 2500);
       });
 
@@ -266,6 +373,26 @@ export default function DebateRoom() {
         setPageState("result");
       });
 
+      socket.on(
+        "debate_completed",
+        (data: {
+          debateId: string;
+          debateName: string;
+          message: string;
+        }) => {
+          setDebateCompleted(true);
+          setCurrentTurnUserId(null);
+          setSecondsLeft(null);
+          setCurrentSide(null);
+          setArgumentPartLabel(null);
+          setArgumentPart(null);
+
+          addSystemMessage(
+            data.message || "Debate completed. Judging can now begin."
+          );
+        }
+      );
+
       socket.on("join_error", ({ message }: { message: string }) => {
         setErrorMessage(message || "Could not join debate.");
         setPageState("error");
@@ -273,7 +400,7 @@ export default function DebateRoom() {
 
       socket.on("disconnect", (reason: string) => {
         console.warn("⚠️ Room socket disconnected:", reason);
-        });
+      });
 
       socket.io.on("reconnect_failed", () => {
         setErrorMessage("Lost connection to the debate server. Please refresh.");
@@ -287,9 +414,6 @@ export default function DebateRoom() {
       cancelled = true;
       joinedRef.current = false;
 
-      // Important:
-      // Do not emit leave_debate here.
-      // Only the Leave button should intentionally leave the debate.
       socketRef.current?.disconnect();
       socketRef.current = null;
     };
@@ -298,7 +422,7 @@ export default function DebateRoom() {
   const sendMessage = useCallback(() => {
     const trimmed = input.trim();
 
-    if (!socketRef.current || !trimmed) return;
+    if (!socketRef.current || !trimmed || debateCompleted) return;
 
     socketRef.current.emit("send_message", {
       debateId,
@@ -306,7 +430,19 @@ export default function DebateRoom() {
     });
 
     setInput("");
-  }, [debateId, input]);
+  }, [debateId, input, debateCompleted]);
+
+  const passTurn = useCallback(() => {
+    if (
+      !socketRef.current ||
+      currentTurnUserId !== userIdRef.current ||
+      debateCompleted
+    ) {
+      return;
+    }
+
+    socketRef.current.emit("pass_turn", { debateId });
+  }, [currentTurnUserId, debateId, debateCompleted]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -320,6 +456,7 @@ export default function DebateRoom() {
     sessionStorage.removeItem(`debate_${debateId}_startTime`);
     sessionStorage.removeItem(`debate_${debateId}_topic`);
     sessionStorage.removeItem(`debate_${debateId}_timePerTurn`);
+    sessionStorage.removeItem(`debate_${debateId}_stages`);
   };
 
   const handleLeave = () => {
@@ -418,6 +555,7 @@ export default function DebateRoom() {
   }
 
   const isMyTurn = currentTurnUserId === userIdRef.current;
+
   const turnProgress =
     secondsLeft !== null && timePerTurn
       ? Math.max(0, Math.min(100, (secondsLeft / timePerTurn) * 100))
@@ -459,24 +597,61 @@ export default function DebateRoom() {
 
       <div className="flex-none bg-slate-800/80 border-b border-slate-700 px-6 py-3">
         <div className="max-w-3xl mx-auto">
-          <div className="flex items-center justify-between mb-2">
-            <p
-              className={`text-sm font-semibold ${
-                isMyTurn ? "text-emerald-400" : "text-slate-400"
-              }`}
-            >
-              {isMyTurn ? "Your turn" : "Opponent's turn"}
-            </p>
+          <div className="flex items-start justify-between gap-4 mb-2">
+            <div>
+              <p
+                className={`text-sm font-semibold ${
+                  debateCompleted
+                    ? "text-blue-400"
+                    : isMyTurn
+                    ? "text-emerald-400"
+                    : "text-slate-400"
+                }`}
+              >
+                {debateCompleted
+                  ? "Debate completed"
+                  : isMyTurn
+                  ? "Your turn"
+                  : "Opponent's turn"}
+              </p>
+
+              {argumentPartLabel && !debateCompleted && (
+                <p className="text-xs text-slate-500 mt-1">
+                  Stage{" "}
+                  {stageIndex !== null && totalStages !== null
+                    ? `${stageIndex + 1} of ${totalStages}`
+                    : ""}
+                  {" · "}
+                  <span className="font-semibold text-slate-300">
+                    {argumentPartLabel}
+                  </span>
+                  {currentSide && (
+                    <>
+                      {" · "}
+                      <span
+                        className={
+                          currentSide === "for"
+                            ? "text-emerald-400"
+                            : "text-red-400"
+                        }
+                      >
+                        {currentSide.toUpperCase()}
+                      </span>
+                    </>
+                  )}
+                </p>
+              )}
+            </div>
 
             <p className="text-sm text-slate-400 tabular-nums">
-              {secondsLeft !== null ? `${secondsLeft}s` : "--"}
+              {secondsLeft !== null && !debateCompleted ? `${secondsLeft}s` : "--"}
             </p>
           </div>
 
           <div className="w-full h-1.5 bg-slate-700 rounded-full overflow-hidden">
             <div
               className="h-full bg-blue-500 rounded-full transition-all duration-1000 ease-linear"
-              style={{ width: `${turnProgress}%` }}
+              style={{ width: `${debateCompleted ? 0 : turnProgress}%` }}
             />
           </div>
         </div>
@@ -523,14 +698,14 @@ export default function DebateRoom() {
         {messages.map((msg, index) =>
           msg.system ? (
             <div
-              key={index}
+              key={`system-${index}`}
               className="text-center text-xs text-slate-500 italic py-1"
             >
               {msg.content}
             </div>
           ) : (
             <div
-              key={index}
+              key={msg.id ?? `message-${index}`}
               className={`flex ${
                 msg.userId === userIdRef.current
                   ? "justify-end"
@@ -559,6 +734,23 @@ export default function DebateRoom() {
                   )}
                 </div>
 
+                {msg.argumentPartLabel && (
+                  <div className="mb-2">
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                        msg.side === "for"
+                          ? "bg-emerald-500/15 text-emerald-300"
+                          : msg.side === "against"
+                          ? "bg-red-500/15 text-red-300"
+                          : "bg-slate-500/15 text-slate-300"
+                      }`}
+                    >
+                      {msg.side ? `${msg.side.toUpperCase()} — ` : ""}
+                      {msg.argumentPartLabel}
+                    </span>
+                  </div>
+                )}
+
                 <p className="text-sm leading-relaxed">{msg.content}</p>
               </div>
             </div>
@@ -581,20 +773,30 @@ export default function DebateRoom() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={
-                isMyTurn
-                  ? "Type your argument..."
+                debateCompleted
+                  ? "Debate completed."
+                  : isMyTurn
+                  ? `Write your ${argumentPartLabel || "argument"}...`
                   : "Wait for your turn..."
               }
-              disabled={!isMyTurn}
+              disabled={!isMyTurn || debateCompleted}
               className="flex-1 rounded-xl bg-slate-700 text-white px-4 py-3 text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow disabled:opacity-50 disabled:cursor-not-allowed"
             />
 
             <button
               onClick={sendMessage}
-              disabled={!input.trim() || !isMyTurn}
+              disabled={!input.trim() || !isMyTurn || debateCompleted}
               className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl text-sm font-semibold transition-colors"
             >
               Send
+            </button>
+
+            <button
+              onClick={passTurn}
+              disabled={!isMyTurn || debateCompleted}
+              className="bg-slate-700 hover:bg-slate-600 disabled:bg-slate-700/60 disabled:text-slate-500 disabled:cursor-not-allowed text-white px-5 py-3 rounded-xl text-sm font-semibold transition-colors"
+            >
+              Pass
             </button>
           </div>
         </div>

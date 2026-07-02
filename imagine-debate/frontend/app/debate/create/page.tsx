@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/supabaseClient";
@@ -81,7 +81,7 @@ async function generateUniqueCode(): Promise<string | null> {
   return null;
 }
 
-export default function CreateDebate() {
+function CreateDebateContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -341,5 +341,13 @@ export default function CreateDebate() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function CreateDebate() {
+  return (
+    <Suspense fallback={null}>
+      <CreateDebateContent />
+    </Suspense>
   );
 }

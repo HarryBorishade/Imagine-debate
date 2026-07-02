@@ -16,69 +16,93 @@ interface User {
 const FEATURED_DEBATES = [
   {
     id: "ai-finance",
-    topic: "AI Should Regulate Finance",
-    description: "Should artificial intelligence hold regulatory power over financial markets?",
+    topic: "AI should regulate financial markets",
+    description:
+      "Who should hold authority when automated systems can detect risk faster than humans?",
     tags: ["Technology", "Economics"],
-    difficulty: "Advanced",
+    level: "Advanced",
   },
   {
     id: "remote-work",
-    topic: "Remote Work is More Productive",
-    description: "Does working from home outperform the traditional office for knowledge workers?",
+    topic: "Remote work is more productive than office work",
+    description:
+      "A practical argument about focus, management, culture, and measurable output.",
     tags: ["Work", "Society"],
-    difficulty: "Intermediate",
+    level: "Intermediate",
   },
   {
     id: "space-exploration",
-    topic: "Space Exploration Benefits Humanity",
-    description: "Are the costs of space programmes justified by the returns to society?",
+    topic: "Space exploration benefits humanity",
+    description:
+      "Do scientific returns justify the cost, risk, and political attention?",
     tags: ["Science", "Policy"],
-    difficulty: "Intermediate",
+    level: "Intermediate",
   },
   {
     id: "universal-basic-income",
-    topic: "Universal Basic Income Works",
-    description: "Can a monthly unconditional payment to every citizen replace the welfare state?",
+    topic: "Universal basic income is feasible and effective",
+    description:
+      "A debate about welfare design, dignity, incentives, and public budgets.",
     tags: ["Economics", "Politics"],
-    difficulty: "Advanced",
+    level: "Advanced",
   },
   {
     id: "social-media-democracy",
-    topic: "Social Media Harms Democracy",
-    description: "Has the algorithmic feed done more damage than good to democratic discourse?",
+    topic: "Social media harms democracy",
+    description:
+      "Has the algorithmic feed made civic life better informed or more unstable?",
     tags: ["Technology", "Politics"],
-    difficulty: "Intermediate",
+    level: "Intermediate",
   },
   {
     id: "nuclear-energy",
-    topic: "Nuclear Energy is the Future",
-    description: "Is nuclear the safest, most scalable path to a carbon-neutral grid?",
+    topic: "Nuclear energy is the future of clean power",
+    description:
+      "A clean-energy motion about risk, scale, cost, and public trust.",
     tags: ["Energy", "Climate"],
-    difficulty: "Beginner",
+    level: "Beginner",
   },
 ];
 
-const DIFFICULTY_COLORS: Record<string, string> = {
-  Beginner: "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30",
-  Intermediate: "bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30",
-  Advanced: "bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30",
+const LEVEL_STYLES: Record<string, string> = {
+  Beginner: "border-emerald-400/25 text-emerald-300 bg-emerald-400/10",
+  Intermediate: "border-amber-400/25 text-amber-300 bg-amber-400/10",
+  Advanced: "border-rose-400/25 text-rose-300 bg-rose-400/10",
 };
 
+const STEPS = [
+  {
+    title: "Create a motion",
+    body: "Choose a topic, set the turn length, and share the four-digit room code.",
+  },
+  {
+    title: "Take turns",
+    body: "Argue for or against the motion in timed rounds, with the option to pass early.",
+  },
+  {
+    title: "Review the case",
+    body: "Keep the debate focused on claims, evidence, rebuttal, and clarity.",
+  },
+];
+
 export default function Home() {
+  const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [joinCode, setJoinCode] = useState("");
   const [joinError, setJoinError] = useState("");
-  const router = useRouter();
+  const [joining, setJoining] = useState(false);
 
   useEffect(() => {
     async function getUser() {
       const {
         data: { session },
       } = await supabase.auth.getSession();
+
       if (session?.user) setUser(session.user as User);
       setLoading(false);
     }
+
     getUser();
 
     const {
@@ -90,74 +114,99 @@ export default function Home() {
     return () => subscription?.unsubscribe();
   }, []);
 
+  const displayName = user?.user_metadata?.username || "Debater";
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setUser(null);
   };
 
-  const handleStartDebate = (topicId: string) => {
+  const handleStartDebate = (topicId?: string) => {
     if (!user) {
       router.push("/auth/signup");
       return;
     }
-    router.push(`/debate/create?topic=${topicId}`);
+
+    router.push(topicId ? `/debate/create?topic=${topicId}` : "/debate/create");
   };
 
-  const handleJoinDebate = (e: React.FormEvent) => {
+  const handleJoinDebate = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!user) {
       router.push("/auth/signup");
       return;
     }
+
     const trimmed = joinCode.trim();
-    if (!trimmed) {
-      setJoinError("Please enter a room code.");
-      return;
-    }
+
     if (!/^\d{4}$/.test(trimmed)) {
-      setJoinError("Code must be exactly 4 digits.");
+      setJoinError("Enter a valid four-digit room code.");
       return;
     }
-    router.push(`/debate/join?code=${trimmed}`);
+
+    setJoining(true);
+    setJoinError("");
+
+    try {
+      const { data, error } = await supabase
+        .from("debates")
+        .select("id, status")
+        .eq("id", trimmed)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (!data) {
+        setJoinError("No debate found with that code.");
+        setJoining(false);
+        return;
+      }
+
+      if (data.status === "finished") {
+        setJoinError("That debate has already finished.");
+        setJoining(false);
+        return;
+      }
+
+      router.push(`/debate/${trimmed}/lobby`);
+    } catch (err: any) {
+      setJoinError(err.message || "Could not join that debate.");
+      setJoining(false);
+    }
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-[#0d1117]">
-        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      <div className="flex min-h-screen items-center justify-center bg-[#101214]">
+        <div className="h-8 w-8 rounded-full border-2 border-white/20 border-t-emerald-300 animate-spin" />
       </div>
     );
   }
 
-  const displayName = user?.user_metadata?.username || user?.email?.split("@")[0];
-
   return (
-    <div className="min-h-screen bg-[#0d1117] text-white">
+    <div className="min-h-screen bg-[#101214] text-[#f4f1ea]">
+      <nav className="sticky top-0 z-40 border-b border-white/10 bg-[#101214]/90 backdrop-blur">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
+          <Link href="/" className="text-base font-semibold tracking-tight">
+            Imagine Debate
+          </Link>
 
-      {/* ── Nav ── */}
-      <nav className="sticky top-0 z-40 bg-[#0d1117]/80 backdrop-blur-md border-b border-white/[0.06]">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-          <span className="text-lg font-semibold tracking-tight">
-            <span className="text-indigo-400">Imagine</span>
-            <span className="text-white/60">·</span>
-            <span>Debate</span>
-          </span>
-
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {user ? (
               <>
-                <span className="hidden sm:block text-sm text-white/50">
+                <span className="hidden text-sm text-[#b9b3a7] sm:block">
                   {displayName}
                 </span>
                 <Link
                   href="/dashboard"
-                  className="px-3.5 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/[0.06] transition-all"
+                  className="rounded-md px-3 py-2 text-sm text-[#d7d0c2] hover:bg-white/8 hover:text-white"
                 >
                   Dashboard
                 </Link>
                 <button
                   onClick={handleLogout}
-                  className="px-3.5 py-1.5 rounded-lg text-sm font-medium text-white/50 hover:text-white/80 hover:bg-white/[0.04] transition-all"
+                  className="rounded-md px-3 py-2 text-sm text-[#9f988c] hover:bg-white/8 hover:text-white"
                 >
                   Sign out
                 </button>
@@ -166,15 +215,15 @@ export default function Home() {
               <>
                 <Link
                   href="/auth/login"
-                  className="px-3.5 py-1.5 rounded-lg text-sm font-medium text-white/60 hover:text-white hover:bg-white/[0.06] transition-all"
+                  className="rounded-md px-3 py-2 text-sm text-[#c7c0b3] hover:bg-white/8 hover:text-white"
                 >
                   Sign in
                 </Link>
                 <Link
                   href="/auth/signup"
-                  className="px-4 py-1.5 rounded-lg text-sm font-medium bg-indigo-600 hover:bg-indigo-500 text-white transition-all"
+                  className="rounded-md bg-[#f4f1ea] px-4 py-2 text-sm font-semibold text-[#101214] hover:bg-white"
                 >
-                  Get started
+                  Create account
                 </Link>
               </>
             )}
@@ -182,221 +231,168 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* ── Hero ── */}
-      <section className="max-w-6xl mx-auto px-6 pt-20 pb-10">
-        <div className="max-w-2xl">
-          <p className="text-xs font-semibold tracking-widest uppercase text-indigo-400 mb-4">
-            AI-judged · real-time · structured
-          </p>
-          <h1 className="text-5xl sm:text-6xl font-bold leading-[1.1] tracking-tight mb-6">
-            Sharpen your
-            <br />
-            <span className="text-indigo-400">argument.</span>
-          </h1>
-          <p className="text-lg text-white/50 leading-relaxed max-w-xl">
-            Pick a topic, face an opponent, and get detailed scoring from an AI judge.
-            Every claim counts.
-          </p>
-        </div>
+      <main>
+        <section className="mx-auto grid max-w-6xl gap-10 px-5 pb-14 pt-14 lg:grid-cols-[1fr_430px] lg:items-end lg:pt-20">
+          <div>
+            <p className="mb-5 text-xs font-semibold uppercase tracking-[0.28em] text-emerald-300/80">
+              Timed arguments for sharper thinking
+            </p>
+            <h1 className="max-w-3xl text-5xl font-semibold leading-[1.02] tracking-tight text-[#fffaf0] sm:text-6xl">
+              Debate without the noise.
+            </h1>
+            <p className="mt-6 max-w-2xl text-lg leading-8 text-[#b9b3a7]">
+              Create a motion, invite an opponent, and make your case in a
+              structured room built for clear claims and clean rebuttals.
+            </p>
 
-        {/* ── Action bar ── */}
-        <div className="mt-10 flex flex-col sm:flex-row gap-4 max-w-2xl">
-          {/* Start a debate */}
-          <Link
-            href={user ? "/debate/create" : "/auth/signup"}
-            className="flex-1 flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition-all text-sm"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            Start a debate
-          </Link>
-
-          {/* Join by code */}
-          <form onSubmit={handleJoinDebate} className="flex-1 flex gap-2">
-            <input
-              type="text"
-              inputMode="numeric"
-              value={joinCode}
-              onChange={(e) => {
-                // Only allow digits, max 4
-                const val = e.target.value.replace(/\D/g, "").slice(0, 4);
-                setJoinCode(val);
-                setJoinError("");
-              }}
-              placeholder="4-digit code"
-              maxLength={4}
-              className="flex-1 px-4 py-3.5 rounded-xl bg-white/[0.05] border border-white/[0.08] text-white placeholder-white/25 text-sm font-mono tracking-widest focus:outline-none focus:border-indigo-500 focus:bg-white/[0.07] transition-all"
-            />
-            <button
-              type="submit"
-              className="px-5 py-3.5 rounded-xl bg-white/[0.07] hover:bg-white/[0.12] border border-white/[0.08] text-white text-sm font-medium transition-all whitespace-nowrap"
-            >
-              Join
-            </button>
-          </form>
-        </div>
-        {joinError && (
-          <p className="mt-2 text-sm text-rose-400">{joinError}</p>
-        )}
-
-        {user && (
-          <p className="mt-4 text-sm text-white/30">
-            Signed in as <span className="text-white/50">{displayName}</span>
-            {" · "}
-            <Link href="/dashboard" className="text-indigo-400 hover:text-indigo-300 transition-colors">
-              view your debates →
-            </Link>
-          </p>
-        )}
-      </section>
-
-      {/* ── How it works ── */}
-      <section className="max-w-6xl mx-auto px-6 py-16">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-white/[0.06] rounded-2xl overflow-hidden border border-white/[0.06]">
-          {[
-            {
-              step: "01",
-              icon: (
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
-                </svg>
-              ),
-              title: "Choose a topic",
-              body: "Pick from our curated debates or propose your own motion.",
-            },
-            {
-              step: "02",
-              icon: (
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
-                </svg>
-              ),
-              title: "Debate live",
-              body: "Take turns presenting claims, evidence, and rebuttals in real time.",
-            },
-            {
-              step: "03",
-              icon: (
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" />
-                </svg>
-              ),
-              title: "Get scored",
-              body: "The AI judge reviews every argument and delivers a verdict with detailed feedback.",
-            },
-          ].map(({ step, icon, title, body }) => (
-            <div key={step} className="bg-[#0d1117] px-8 py-8 flex gap-5">
-              <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-indigo-600/15 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
-                {icon}
-              </div>
-              <div>
-                <p className="text-[11px] font-semibold tracking-widest text-white/25 mb-1.5">{step}</p>
-                <h3 className="text-sm font-semibold text-white mb-1">{title}</h3>
-                <p className="text-sm text-white/40 leading-relaxed">{body}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── Debate topics ── */}
-      <section className="max-w-6xl mx-auto px-6 py-10 pb-24">
-        <div className="flex items-baseline justify-between mb-8">
-          <h2 className="text-xl font-semibold">Featured topics</h2>
-          <Link
-            href={user ? "/debate/create" : "/auth/signup"}
-            className="text-sm text-indigo-400 hover:text-indigo-300 transition-colors"
-          >
-            Propose your own →
-          </Link>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {FEATURED_DEBATES.map((debate) => (
-            <div
-              key={debate.id}
-              className="group relative bg-white/[0.03] border border-white/[0.07] rounded-2xl p-6 flex flex-col gap-4 hover:bg-white/[0.055] hover:border-indigo-500/30 transition-all duration-200"
-            >
-              {/* Tags row */}
-              <div className="flex items-center gap-2 flex-wrap">
-                {debate.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-white/[0.06] text-white/40"
-                  >
-                    {tag}
-                  </span>
-                ))}
-                <span className={`ml-auto text-[11px] font-medium px-2 py-0.5 rounded-md ${DIFFICULTY_COLORS[debate.difficulty]}`}>
-                  {debate.difficulty}
-                </span>
-              </div>
-
-              {/* Topic */}
-              <div className="flex-1">
-                <h3 className="text-base font-semibold text-white leading-snug mb-2 group-hover:text-indigo-200 transition-colors">
-                  {debate.topic}
-                </h3>
-                <p className="text-sm text-white/40 leading-relaxed">
-                  {debate.description}
-                </p>
-              </div>
-
-              {/* Actions */}
-              <div className="flex gap-2 pt-2 border-t border-white/[0.06]">
-                <button
-                  onClick={() => handleStartDebate(debate.id)}
-                  className="flex-1 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all"
-                >
-                  Start debate
-                </button>
-                {/* FIX: was /debate/join?topic=${debate.id} which passed a slug as a code */}
-                <Link
-                  href="/debate/join"
-                  className="px-4 py-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.10] text-white/60 hover:text-white text-xs font-medium transition-all"
-                >
-                  Join existing
-                </Link>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── CTA ── */}
-      {!user && (
-        <section className="max-w-6xl mx-auto px-6 pb-24">
-          <div className="relative rounded-2xl border border-indigo-500/20 bg-indigo-600/[0.07] px-8 py-12 text-center overflow-hidden">
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(99,102,241,0.08)_0%,_transparent_70%)]" />
-            <div className="relative">
-              <h2 className="text-2xl font-bold mb-3">Ready to make your case?</h2>
-              <p className="text-white/50 mb-6 max-w-md mx-auto text-sm leading-relaxed">
-                Create a free account and jump into a debate in under two minutes.
-              </p>
-              <Link
-                href="/auth/signup"
-                className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-all"
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <button
+                onClick={() => handleStartDebate()}
+                className="rounded-md bg-[#f4f1ea] px-5 py-3 text-sm font-semibold text-[#101214] hover:bg-white"
               >
-                Create your account
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-                </svg>
+                Start a debate
+              </button>
+              <Link
+                href={user ? "/dashboard" : "/auth/signup"}
+                className="rounded-md border border-white/12 px-5 py-3 text-center text-sm font-semibold text-[#e8e1d2] hover:bg-white/8"
+              >
+                View dashboard
               </Link>
             </div>
           </div>
-        </section>
-      )}
 
-      {/* ── Footer ── */}
-      <footer className="border-t border-white/[0.06] py-8">
-        <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <span className="text-sm font-medium">
-            <span className="text-indigo-400">Imagine</span>
-            <span className="text-white/30">·</span>
-            <span className="text-white/30">Debate</span>
-          </span>
-          <p className="text-xs text-white/25">© 2026 Imagine-Debate. All rights reserved.</p>
+          <div className="border border-white/10 bg-[#171a1d] p-5 shadow-2xl shadow-black/20">
+            <div className="border-b border-white/10 pb-4">
+              <p className="text-sm font-semibold text-[#fffaf0]">
+                Join an existing room
+              </p>
+              <p className="mt-1 text-sm text-[#9f988c]">
+                Enter the code once. We will take you straight to the lobby.
+              </p>
+            </div>
+
+            <form onSubmit={handleJoinDebate} className="mt-5">
+              <label htmlFor="room-code" className="sr-only">
+                Room code
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id="room-code"
+                  type="text"
+                  inputMode="numeric"
+                  value={joinCode}
+                  onChange={(e) => {
+                    setJoinCode(e.target.value.replace(/\D/g, "").slice(0, 4));
+                    setJoinError("");
+                  }}
+                  placeholder="0000"
+                  maxLength={4}
+                  className="min-w-0 flex-1 rounded-md border border-white/10 bg-black/20 px-4 py-3 font-mono text-lg tracking-[0.45em] text-white placeholder:text-white/20 focus:border-emerald-300 focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={joining || joinCode.length !== 4}
+                  className="rounded-md bg-emerald-300 px-5 py-3 text-sm font-semibold text-[#111411] hover:bg-emerald-200 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
+                >
+                  {joining ? "Joining" : "Join"}
+                </button>
+              </div>
+              {joinError && (
+                <p className="mt-3 text-sm text-rose-300">{joinError}</p>
+              )}
+            </form>
+          </div>
+        </section>
+
+        <section className="border-y border-white/10 bg-[#141719]">
+          <div className="mx-auto grid max-w-6xl gap-px px-5 py-10 sm:grid-cols-3">
+            {STEPS.map((step, index) => (
+              <div key={step.title} className="bg-[#141719] py-4 sm:px-6">
+                <p className="text-xs font-semibold text-emerald-300/70">
+                  {String(index + 1).padStart(2, "0")}
+                </p>
+                <h2 className="mt-3 text-base font-semibold text-[#fffaf0]">
+                  {step.title}
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-[#a9a295]">
+                  {step.body}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-6xl px-5 py-14">
+          <div className="mb-6 flex items-end justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-emerald-300/80">
+                Featured motions
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[#fffaf0]">
+                Start from a strong premise.
+              </h2>
+            </div>
+            <button
+              onClick={() => handleStartDebate()}
+              className="hidden rounded-md border border-white/12 px-4 py-2 text-sm font-semibold text-[#d7d0c2] hover:bg-white/8 sm:block"
+            >
+              Custom motion
+            </button>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {FEATURED_DEBATES.map((debate) => (
+              <article
+                key={debate.id}
+                className="flex min-h-64 flex-col border border-white/10 bg-[#171a1d] p-5 transition hover:border-emerald-300/30 hover:bg-[#1b1f22]"
+              >
+                <div className="mb-4 flex flex-wrap items-center gap-2">
+                  {debate.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="rounded border border-white/10 px-2 py-1 text-xs text-[#9f988c]"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                  <span
+                    className={`ml-auto rounded border px-2 py-1 text-xs ${LEVEL_STYLES[debate.level]}`}
+                  >
+                    {debate.level}
+                  </span>
+                </div>
+
+                <h3 className="text-lg font-semibold leading-snug text-[#fffaf0]">
+                  {debate.topic}
+                </h3>
+                <p className="mt-3 flex-1 text-sm leading-6 text-[#a9a295]">
+                  {debate.description}
+                </p>
+
+                <div className="mt-6 flex gap-2 border-t border-white/10 pt-4">
+                  <button
+                    onClick={() => handleStartDebate(debate.id)}
+                    className="flex-1 rounded-md bg-[#f4f1ea] px-3 py-2 text-sm font-semibold text-[#101214] hover:bg-white"
+                  >
+                    Use this motion
+                  </button>
+                  <Link
+                    href="/debate/join"
+                    className="rounded-md border border-white/10 px-3 py-2 text-sm font-semibold text-[#c7c0b3] hover:bg-white/8"
+                  >
+                    Join
+                  </Link>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      </main>
+
+      <footer className="border-t border-white/10">
+        <div className="mx-auto flex max-w-6xl flex-col gap-2 px-5 py-7 text-sm text-[#8f887c] sm:flex-row sm:items-center sm:justify-between">
+          <span>Imagine Debate</span>
+          <span>Structured rooms for sharper arguments.</span>
         </div>
       </footer>
     </div>

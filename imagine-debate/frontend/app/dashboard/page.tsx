@@ -1,45 +1,35 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/supabaseClient";
 
+type HistoryRange = 7 | 30;
+
 interface Debate {
   id: string;
   topic: string;
-  opponent?: string;
   status: string;
-  phase?: string;
-  score?: number;
+  created_at: string;
+  time_per_turn?: number | null;
 }
 
 interface UserStats {
   totalDebates: number;
-  wins: number;
-  losses: number;
-  avgScore: number;
-}
-
-interface Notification {
-  id: string;
-  message: string;
-  timestamp: string;
+  activeDebates: number;
+  completedDebates: number;
+  waitingDebates: number;
 }
 
 export default function Dashboard() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
-  const [activeDebates, setActiveDebates] = useState<Debate[]>([]);
-  const [recentDebates, setRecentDebates] = useState<Debate[]>([]);
-  const [stats, setStats] = useState<UserStats>({
-    totalDebates: 0,
-    wins: 0,
-    losses: 0,
-    avgScore: 0,
-  });
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [debates, setDebates] = useState<Debate[]>([]);
+  const [historyRange, setHistoryRange] = useState<HistoryRange>(7);
   const [loading, setLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
 
   useEffect(() => {
     async function checkAuth() {
@@ -59,151 +49,296 @@ export default function Dashboard() {
     checkAuth();
   }, [router]);
 
+  useEffect(() => {
+    if (!user?.id) return;
+
+    let cancelled = false;
+
+    async function loadDebates() {
+      setHistoryLoading(true);
+      setHistoryError("");
+
+      const since = new Date();
+      since.setDate(since.getDate() - historyRange);
+
+      const { data, error } = await supabase
+        .from("debates")
+        .select("id, topic, status, created_at, time_per_turn")
+        .eq("created_by", user.id)
+        .gte("created_at", since.toISOString())
+        .order("created_at", { ascending: false });
+
+      if (cancelled) return;
+
+      if (error) {
+        setDebates([]);
+        setHistoryError(error.message || "Could not load your debate history.");
+        setHistoryLoading(false);
+        return;
+      }
+
+      setDebates((data || []) as Debate[]);
+      setHistoryLoading(false);
+    }
+
+    loadDebates();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [historyRange, user?.id]);
+
+  const activeDebates = useMemo(
+    () => debates.filter((debate) => debate.status !== "finished"),
+    [debates]
+  );
+
+  const previousDebates = debates;
+
+  const stats: UserStats = useMemo(
+    () => ({
+      totalDebates: debates.length,
+      activeDebates: activeDebates.length,
+      completedDebates: debates.filter((debate) => debate.status === "finished")
+        .length,
+      waitingDebates: debates.filter((debate) => debate.status === "waiting")
+        .length,
+    }),
+    [activeDebates.length, debates]
+  );
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-900 to-slate-800">
-        <div className="text-white">Loading dashboard...</div>
+      <div className="flex min-h-screen items-center justify-center bg-[#101214]">
+        <div className="h-8 w-8 rounded-full border-2 border-white/20 border-t-emerald-300 animate-spin" />
       </div>
     );
   }
 
+  const displayName = user?.user_metadata?.username || "Debater";
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800">
-      {/* Header */}
-      <div className="bg-slate-800/50 backdrop-blur border-b border-slate-700 p-6">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <Link href="/" className="hover:opacity-80 transition-opacity">
-            <div>
-              <h1 className="text-3xl font-bold text-white">Dashboard</h1>
-              <p className="text-slate-400 text-sm mt-1">
-                Welcome back, {user?.user_metadata?.username || user?.email}
-              </p>
+    <div className="min-h-screen bg-[#101214] text-[#f4f1ea]">
+      <header className="border-b border-white/10 bg-[#101214]/90">
+        <div className="mx-auto flex max-w-6xl flex-col gap-5 px-5 py-6 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <Link href="/" className="text-sm font-semibold text-emerald-300/80">
+              Imagine Debate
+            </Link>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-[#fffaf0]">
+              Dashboard
+            </h1>
+            <p className="mt-1 text-sm text-[#a9a295]">
+              Welcome back, {displayName}
+            </p>
+          </div>
+
+          <div className="flex gap-2">
+            <Link
+              href="/"
+              className="rounded-md border border-white/10 px-4 py-2 text-sm font-semibold text-[#d7d0c2] hover:bg-white/8"
+            >
+              Home
+            </Link>
+            <Link
+              href="/debate/create"
+              className="rounded-md bg-[#f4f1ea] px-4 py-2 text-sm font-semibold text-[#101214] hover:bg-white"
+            >
+              New debate
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto grid max-w-6xl gap-6 px-5 py-8 lg:grid-cols-[1fr_320px]">
+        <div className="space-y-6">
+          <section className="border border-white/10 bg-[#171a1d]">
+            <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+              <h2 className="text-base font-semibold text-[#fffaf0]">
+                Active debates
+              </h2>
+              <span className="text-xs text-[#8f887c]">
+                {activeDebates.length} open
+              </span>
             </div>
-          </Link>
 
-          <div className="flex gap-3">
-            <Link href="/">
-              <button className="px-6 py-3 rounded-lg bg-slate-600 hover:bg-slate-500 text-white font-semibold transition-all">
-                Home
-              </button>
-            </Link>
-            <Link href="/debate/create">
-              <button className="px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-all">
-                Start New Debate
-              </button>
-            </Link>
-          </div>
-        </div>
-      </div>
-
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        <div className="grid grid-cols-4 gap-6">
-          {/* LEFT COLUMN (Main Content) */}
-          <div className="col-span-3 space-y-6">
-            {/* Active Debates */}
-            <section className="bg-slate-700/50 backdrop-blur border border-slate-600 rounded-lg p-6">
-              <h2 className="text-xl font-bold text-white mb-4">Active Debates</h2>
-
-              {activeDebates.length === 0 ? (
-                <p className="text-slate-400">
-                  No active debates. Start one now!
+            {historyLoading ? (
+              <LoadingRows />
+            ) : activeDebates.length === 0 ? (
+              <div className="px-5 py-10">
+                <p className="text-sm text-[#a9a295]">
+                  No active debates in the selected window. Start a room and
+                  share the four-digit code with an opponent.
                 </p>
-              ) : (
-                <div className="space-y-3">
-                  {activeDebates.map((debate) => (
-                    <Link key={debate.id} href={`/debate/${debate.id}`}>
-                      <div className="p-4 border border-slate-600 rounded-lg hover:border-blue-500 hover:bg-slate-600/50 transition-all cursor-pointer">
-                        <p className="font-medium text-white">{debate.topic}</p>
-                        <p className="text-sm text-slate-400">
-                          vs {debate.opponent || "Opponent"} • {debate.phase || "Ongoing"}
-                        </p>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            {/* Recent Debates */}
-            <section className="bg-slate-700/50 backdrop-blur border border-slate-600 rounded-lg p-6">
-              <h2 className="text-xl font-bold text-white mb-4">Recent Debates</h2>
-
-              {recentDebates.length === 0 ? (
-                <p className="text-slate-400">
-                  No completed debates yet. Start your first debate!
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  {recentDebates.map((debate) => (
-                    <Link key={debate.id} href={`/debate/${debate.id}`}>
-                      <div className="p-4 border border-slate-600 rounded-lg hover:border-blue-500 hover:bg-slate-600/50 transition-all cursor-pointer">
-                        <p className="font-medium text-white">{debate.topic}</p>
-                        <p className="text-sm text-slate-400">
-                          vs {debate.opponent || "Opponent"} • Score: {debate.score || "N/A"}
-                        </p>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </section>
-          </div>
-
-          {/* RIGHT COLUMN (Stats + Notifications) */}
-          <div className="col-span-1 space-y-6">
-            {/* User Stats */}
-            <section className="bg-slate-700/50 backdrop-blur border border-slate-600 rounded-lg p-6">
-              <h2 className="text-xl font-bold text-white mb-4">Your Stats</h2>
-
-              <div className="space-y-3 text-slate-300">
-                <div className="flex justify-between">
-                  <span>Total Debates:</span>
-                  <span className="font-bold text-white">
-                    {stats.totalDebates}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Wins:</span>
-                  <span className="font-bold text-green-400">{stats.wins}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Losses:</span>
-                  <span className="font-bold text-red-400">{stats.losses}</span>
-                </div>
-                <div className="flex justify-between border-t border-slate-600 pt-3">
-                  <span>Average Score:</span>
-                  <span className="font-bold text-blue-400">
-                    {stats.avgScore.toFixed(1)}
-                  </span>
-                </div>
+                <Link
+                  href="/debate/create"
+                  className="mt-5 inline-flex rounded-md bg-emerald-300 px-4 py-2 text-sm font-semibold text-[#111411] hover:bg-emerald-200"
+                >
+                  Start a debate
+                </Link>
               </div>
-            </section>
+            ) : (
+              <DebateList debates={activeDebates} />
+            )}
+          </section>
 
-            {/* Notifications */}
-            <section className="bg-slate-700/50 backdrop-blur border border-slate-600 rounded-lg p-6">
-              <h2 className="text-xl font-bold text-white mb-4">Notifications</h2>
+          <section className="border border-white/10 bg-[#171a1d]">
+            <div className="flex flex-col gap-4 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-[#fffaf0]">
+                  Previous debates
+                </h2>
+                <p className="mt-1 text-sm text-[#8f887c]">
+                  Supabase keeps this history for 30 days.
+                </p>
+              </div>
 
-              {notifications.length === 0 ? (
-                <p className="text-slate-400 text-sm">No notifications yet.</p>
-              ) : (
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {notifications.map((n) => (
-                    <div
-                      key={n.id}
-                      className="p-3 bg-slate-600/50 border border-slate-600 rounded text-sm text-slate-300"
-                    >
-                      <p>{n.message}</p>
-                      <p className="text-xs text-slate-500 mt-1">
-                        {new Date(n.timestamp).toLocaleDateString()}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          </div>
+              <div className="inline-flex w-fit overflow-hidden rounded-md border border-white/10 bg-black/10">
+                {[7, 30].map((range) => (
+                  <button
+                    key={range}
+                    onClick={() => setHistoryRange(range as HistoryRange)}
+                    className={`px-3 py-2 text-sm font-semibold transition ${
+                      historyRange === range
+                        ? "bg-emerald-300 text-[#111411]"
+                        : "text-[#c7c0b3] hover:bg-white/8"
+                    }`}
+                  >
+                    Last {range} days
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {historyError ? (
+              <p className="px-5 py-8 text-sm text-rose-300">{historyError}</p>
+            ) : historyLoading ? (
+              <LoadingRows />
+            ) : previousDebates.length === 0 ? (
+              <p className="px-5 py-8 text-sm text-[#a9a295]">
+                No debates found in the last {historyRange} days.
+              </p>
+            ) : (
+              <DebateList debates={previousDebates} />
+            )}
+          </section>
         </div>
-      </div>
+
+        <aside className="space-y-6">
+          <section className="border border-white/10 bg-[#171a1d] p-5">
+            <h2 className="text-base font-semibold text-[#fffaf0]">
+              {historyRange}-day summary
+            </h2>
+            <div className="mt-5 space-y-3 text-sm">
+              <StatRow label="Total debates" value={stats.totalDebates} />
+              <StatRow
+                label="Open rooms"
+                value={stats.activeDebates}
+                valueClass="text-emerald-300"
+              />
+              <StatRow
+                label="Waiting"
+                value={stats.waitingDebates}
+                valueClass="text-amber-300"
+              />
+              <div className="border-t border-white/10 pt-3">
+                <StatRow
+                  label="Finished"
+                  value={stats.completedDebates}
+                  valueClass="text-[#fffaf0]"
+                />
+              </div>
+            </div>
+          </section>
+
+          <section className="border border-white/10 bg-[#171a1d] p-5">
+            <h2 className="text-base font-semibold text-[#fffaf0]">
+              Retention
+            </h2>
+            <p className="mt-4 text-sm leading-6 text-[#a9a295]">
+              Debate rows older than 30 days are expected to be deleted from
+              Supabase, so the longest dashboard view is capped at 30 days.
+            </p>
+          </section>
+        </aside>
+      </main>
     </div>
   );
+}
+
+function DebateList({ debates }: { debates: Debate[] }) {
+  return (
+    <div className="divide-y divide-white/10">
+      {debates.map((debate) => (
+        <Link
+          key={debate.id}
+          href={`/debate/${debate.id}/lobby`}
+          className="block px-5 py-4 hover:bg-white/5"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="font-medium text-[#fffaf0]">{debate.topic}</p>
+              <p className="mt-1 text-sm text-[#9f988c]">
+                Room {debate.id} - {formatDate(debate.created_at)}
+                {debate.time_per_turn ? ` - ${debate.time_per_turn}s turns` : ""}
+              </p>
+            </div>
+            <StatusPill status={debate.status} />
+          </div>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function StatusPill({ status }: { status: string }) {
+  const style =
+    status === "finished"
+      ? "border-white/15 bg-white/8 text-[#c7c0b3]"
+      : status === "active"
+      ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-300"
+      : "border-amber-300/25 bg-amber-300/10 text-amber-300";
+
+  return (
+    <span
+      className={`w-fit rounded border px-2 py-1 text-xs font-semibold capitalize ${style}`}
+    >
+      {status}
+    </span>
+  );
+}
+
+function LoadingRows() {
+  return (
+    <div className="space-y-3 px-5 py-6">
+      {[0, 1, 2].map((row) => (
+        <div key={row} className="h-12 animate-pulse bg-white/5" />
+      ))}
+    </div>
+  );
+}
+
+function StatRow({
+  label,
+  value,
+  valueClass = "text-[#fffaf0]",
+}: {
+  label: string;
+  value: number | string;
+  valueClass?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-[#a9a295]">{label}</span>
+      <span className={`font-semibold ${valueClass}`}>{value}</span>
+    </div>
+  );
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(value));
 }
