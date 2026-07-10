@@ -170,8 +170,10 @@ export default function Home() {
       }
 
       router.push(`/debate/${trimmed}/lobby`);
-    } catch (err: any) {
-      setJoinError(err.message || "Could not join that debate.");
+    } catch (err: unknown) {
+      setJoinError(
+        err instanceof Error ? err.message : "Could not join that debate."
+      );
       setJoining(false);
     }
   };
@@ -392,7 +394,12 @@ export default function Home() {
       <footer className="border-t border-white/10">
         <div className="mx-auto flex max-w-6xl flex-col gap-2 px-5 py-7 text-sm text-[#8f887c] sm:flex-row sm:items-center sm:justify-between">
           <span>Imagine Debate</span>
-          <span>Structured rooms for sharper arguments.</span>
+          <div className="flex flex-wrap items-center gap-4">
+            <Link href="/cookies" className="hover:text-[#f4f1ea]">
+              Cookies
+            </Link>
+            <span>Structured rooms for sharper arguments.</span>
+          </div>
         </div>
       </footer>
     </div>

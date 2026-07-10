@@ -1,16 +1,42 @@
-.env
-.env.*
-!.env.example
-
+# Dependencies
 node_modules/
-**/node_modules/
+backend/node_modules/
+frontend/node_modules/
 
-Database stuff.txt
-
-.next/
+# Build outputs
 dist/
-build/
+backend/dist/
+.next/
+frontend/.next/
+out/
+coverage/
+*.tsbuildinfo
 
+# Environment files / secrets
+.env
+.env.local
+.env.*.local
+backend/.env
+backend/.env.local
+frontend/.env
+frontend/.env.local
+supabase/.env
+
+# Keep examples safe to commit
+!.env.example
+!backend/.env.example
+!frontend/.env.example
+
+# Supabase local files
+supabase/.temp/
+
+# Logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# OS/editor
 .DS_Store
-.vscode/
+Thumbs.db
+.vscode/settings.local.json

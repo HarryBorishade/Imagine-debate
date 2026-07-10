@@ -77,6 +77,11 @@ interface DebateStartedPayload {
 type PageState = "loading" | "error" | "debate" | "result";
 
 const GRACE_PERIOD_MAX = 15;
+const MAX_MESSAGE_WORDS = 300;
+
+function countWords(value: string) {
+  return value.trim().split(/\s+/).filter(Boolean).length;
+}
 
 export default function DebateRoom() {
   const params = useParams();
@@ -91,6 +96,7 @@ export default function DebateRoom() {
   const [pageState, setPageState] = useState<PageState>("loading");
   const [errorMessage, setErrorMessage] = useState("");
 
+  const [myUserId, setMyUserId] = useState<string | null>(null);
   const [debateName, setDebateName] = useState("");
   const [mySide, setMySide] = useState<"for" | "against" | null>(null);
 
@@ -110,12 +116,12 @@ export default function DebateRoom() {
   const [currentSide, setCurrentSide] = useState<"for" | "against" | null>(
     null
   );
-  const [argumentPart, setArgumentPart] = useState<string | null>(null);
+  const [, setArgumentPart] = useState<string | null>(null);
   const [argumentPartLabel, setArgumentPartLabel] = useState<string | null>(
     null
   );
   const [stageIndex, setStageIndex] = useState<number | null>(null);
-  const [turnIndex, setTurnIndex] = useState<number | null>(null);
+  const [, setTurnIndex] = useState<number | null>(null);
   const [totalStages, setTotalStages] = useState<number | null>(null);
   const [debateCompleted, setDebateCompleted] = useState(false);
 
@@ -155,6 +161,7 @@ export default function DebateRoom() {
       if (cancelled) return;
 
       userIdRef.current = session.user.id;
+      setMyUserId(session.user.id);
 
       const storedSide = sessionStorage.getItem(`debate_${debateId}_side`) as
         | "for"
@@ -390,6 +397,16 @@ export default function DebateRoom() {
           addSystemMessage(
             data.message || "Debate completed. Judging can now begin."
           );
+
+          if (data.debateName) {
+            sessionStorage.setItem(
+              `debate_${debateId}_topic`,
+              data.debateName
+            );
+          }
+
+          sessionStorage.setItem(`debate_${debateId}_awaitingOutcome`, "true");
+          router.push(`/debate/${debateId}/outcome`);
         }
       );
 
@@ -423,6 +440,12 @@ export default function DebateRoom() {
     const trimmed = input.trim();
 
     if (!socketRef.current || !trimmed || debateCompleted) return;
+
+    if (countWords(trimmed) > MAX_MESSAGE_WORDS) {
+      setTurnError(`Keep your message to ${MAX_MESSAGE_WORDS} words or fewer.`);
+      setTimeout(() => setTurnError(""), 2500);
+      return;
+    }
 
     socketRef.current.emit("send_message", {
       debateId,
@@ -502,7 +525,7 @@ export default function DebateRoom() {
   }
 
   if (pageState === "result" && result !== null) {
-    const iWon = result.winner.id === userIdRef.current;
+    const iWon = result.winner.id === myUserId;
 
     return (
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 p-6">
@@ -554,12 +577,14 @@ export default function DebateRoom() {
     );
   }
 
-  const isMyTurn = currentTurnUserId === userIdRef.current;
+  const isMyTurn = currentTurnUserId === myUserId;
 
   const turnProgress =
     secondsLeft !== null && timePerTurn
       ? Math.max(0, Math.min(100, (secondsLeft / timePerTurn) * 100))
       : 0;
+  const wordCount = countWords(input);
+  const isOverWordLimit = wordCount > MAX_MESSAGE_WORDS;
 
   return (
     <div className="flex flex-col h-screen bg-gradient-to-br from-slate-900 to-slate-800">
@@ -707,14 +732,14 @@ export default function DebateRoom() {
             <div
               key={msg.id ?? `message-${index}`}
               className={`flex ${
-                msg.userId === userIdRef.current
+                msg.userId === myUserId
                   ? "justify-end"
                   : "justify-start"
               }`}
             >
               <div
                 className={`max-w-xl rounded-2xl px-5 py-3 ${
-                  msg.userId === userIdRef.current
+                  msg.userId === myUserId
                     ? "bg-blue-600 text-white rounded-br-sm"
                     : "bg-slate-700 text-slate-100 rounded-bl-sm"
                 }`}
@@ -780,12 +805,18 @@ export default function DebateRoom() {
                   : "Wait for your turn..."
               }
               disabled={!isMyTurn || debateCompleted}
-              className="flex-1 rounded-xl bg-slate-700 text-white px-4 py-3 text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`flex-1 rounded-xl bg-slate-700 text-white px-4 py-3 text-sm placeholder-slate-500 focus:outline-none focus:ring-2 transition-shadow disabled:opacity-50 disabled:cursor-not-allowed ${
+                isOverWordLimit
+                  ? "focus:ring-red-500 ring-1 ring-red-500/60"
+                  : "focus:ring-blue-500"
+              }`}
             />
 
             <button
               onClick={sendMessage}
-              disabled={!input.trim() || !isMyTurn || debateCompleted}
+              disabled={
+                !input.trim() || !isMyTurn || debateCompleted || isOverWordLimit
+              }
               className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl text-sm font-semibold transition-colors"
             >
               Send
@@ -798,6 +829,24 @@ export default function DebateRoom() {
             >
               Pass
             </button>
+          </div>
+
+          <div className="mt-2 flex items-center justify-between text-xs">
+            <span
+              className={isOverWordLimit ? "text-red-400" : "text-slate-500"}
+            >
+              {isOverWordLimit
+                ? `Too long by ${wordCount - MAX_MESSAGE_WORDS} words.`
+                : `${MAX_MESSAGE_WORDS} words max per message.`}
+            </span>
+
+            <span
+              className={`tabular-nums ${
+                isOverWordLimit ? "text-red-400" : "text-slate-500"
+              }`}
+            >
+              {wordCount}/{MAX_MESSAGE_WORDS}
+            </span>
           </div>
         </div>
       </footer>

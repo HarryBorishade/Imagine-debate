@@ -20,6 +20,7 @@ const MAX_PLAYERS = 2;
 const GRACE_PERIOD_SECONDS = 15;
 const DISCONNECT_NAVIGATION_DELAY_MS = 2500;
 const DEFAULT_TURN_SECONDS = 120;
+const MAX_MESSAGE_WORDS = 300;
 
 const app = express();
 
@@ -208,6 +209,10 @@ function getCurrentSide(room: DebateRoom): Side | null {
   if (!room.turnOrder || !room.currentTurn) return null;
 
   return room.sides[room.currentTurn] ?? null;
+}
+
+function countWords(value: string) {
+  return value.trim().split(/\s+/).filter(Boolean).length;
 }
 
 function buildTurnPayload(debateId: string, room: DebateRoom) {
@@ -894,6 +899,14 @@ socket.on(
       }
 
       const cleanContent = content.trim();
+
+      if (countWords(cleanContent) > MAX_MESSAGE_WORDS) {
+        socket.emit("message_error", {
+          message: `Messages must be ${MAX_MESSAGE_WORDS} words or fewer.`,
+        });
+        return;
+      }
+
       const side = room.sides[user.id] ?? null;
 
       const { data, error } = await supabase

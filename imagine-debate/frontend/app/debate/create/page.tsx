@@ -324,7 +324,7 @@ function CreateDebateContent() {
                   Creating…
                 </span>
               ) : (
-                "Create debate →"
+                "Create debate"
               )}
             </button>
           </div>
