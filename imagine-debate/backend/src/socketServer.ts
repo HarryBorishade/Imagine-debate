@@ -129,7 +129,14 @@ const rooms: Record<string, DebateRoom> = {};
 const userSockets: Record<string, Set<string>> = {};
 const gracePeriodTimers: Record<string, NodeJS.Timeout> = {};
 const turnTimers: Record<string, NodeJS.Timeout> = {};
-const debateMetaCache: Record<string, { name: string; timePerTurn: number }> = {};
+interface DebateMeta {
+  name: string;
+  timePerTurn: number;
+  status: string;
+  appraisalStatus: string | null;
+}
+
+const debateMetaCache: Record<string, DebateMeta> = {};
 const pendingDisconnectTimers: Record<string, NodeJS.Timeout> = {};
 
 io.use(async (socket, next) => {
@@ -182,6 +189,29 @@ function roomKey(debateId: string) {
 
 function pendingDisconnectKey(debateId: string, userId: string) {
   return `${debateId}:${userId}`;
+}
+
+// SECTION: Normalise Text Debate IDs
+function normaliseDebateId(value: unknown): string | null {
+  const debateId =
+    typeof value === "string" || typeof value === "number"
+      ? String(value).trim()
+      : "";
+
+  return debateId.length > 0 ? debateId : null;
+}
+
+function getMessageDebateId(debateId: string): number | null {
+  const numericDebateId = Number(debateId);
+
+  if (
+    !Number.isSafeInteger(numericDebateId) ||
+    numericDebateId <= 0
+  ) {
+    return null;
+  }
+
+  return numericDebateId;
 }
 
 function getRoom(debateId: string): DebateRoom {
@@ -238,53 +268,109 @@ function buildTurnPayload(debateId: string, room: DebateRoom) {
   };
 }
 
-function emitDebateCompleted(debateId: string) {
+// SECTION: Queue Completed Debate for AI Appraisal
+async function emitDebateCompleted(debateId: string): Promise<void> {
   const room = rooms[debateId];
 
-  if (!room) return;
+  if (!room || room.status === "completed") return;
 
   room.status = "completed";
+
   clearTurnTimer(debateId);
   clearGracePeriod(debateId);
   clearAllPendingDisconnectsForDebate(debateId);
 
-  io.to(roomKey(debateId)).emit("debate_completed", {
-    debateId,
-    debateName: room.debateName,
-    message: "Debate completed. Judging can now begin.",
-  });
+  try {
+    const { data: updatedDebate, error: completionError } = await supabase
+      .from("debates")
+      .update({
+        status: "completed",
+        appraisal_status: "pending",
+        appraisal_model: null,
+        appraisal_attempts: 0,
+        appraisal_error: null,
+        appraisal_started_at: null,
+        appraisal_completed_at: null,
+        appraisal_result: null,
+      })
+      .eq("id", debateId)
+      .select("id")
+      .maybeSingle();
 
-  delete rooms[debateId];
+    if (completionError) {
+      throw new Error(completionError.message);
+    }
+
+    if (!updatedDebate) {
+      throw new Error(
+        `Debate ${debateId} was not found in Supabase and could not be queued.`
+      );
+    }
+
+    console.log(
+      `✅ Debate ${debateId} completed and queued for AI appraisal`
+    );
+
+    io.to(roomKey(debateId)).emit("debate_completed", {
+      debateId,
+      debateName: room.debateName,
+      appraisalStatus: "pending",
+      message: "Debate completed. AI appraisal is now pending.",
+      pipelineVersion: "010707",
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Unknown error while queueing the debate.";
+
+    console.error(
+      `❌ Failed to queue debate ${debateId} for AI appraisal:`,
+      message
+    );
+
+    io.to(roomKey(debateId)).emit("appraisal_queue_error", {
+      debateId,
+      message:
+        "The debate finished, but it could not be queued for appraisal.",
+      details: message,
+    });
+  } finally {
+    delete debateMetaCache[debateId];
+    delete rooms[debateId];
+  }
 }
 
 async function fetchDebateMeta(
   debateId: string
-): Promise<{ name: string; timePerTurn: number }> {
+): Promise<DebateMeta | null> {
   if (debateMetaCache[debateId]) {
     return debateMetaCache[debateId];
   }
 
   const { data, error } = await supabase
     .from("debates")
-    .select("topic, time_per_turn")
+    .select("topic, time_per_turn, status, appraisal_status")
     .eq("id", debateId)
-    .single();
+    .maybeSingle();
 
   if (error || !data) {
     console.warn(
       `⚠️ Could not load debate meta for ${debateId}:`,
-      error?.message
+      error?.message ?? "Debate not found."
     );
 
-    return {
-      name: debateId,
-      timePerTurn: DEFAULT_TURN_SECONDS,
-    };
+    return null;
   }
 
-  const meta = {
+  const meta: DebateMeta = {
     name: data.topic as string,
     timePerTurn: (data.time_per_turn as number) ?? DEFAULT_TURN_SECONDS,
+    status: String(data.status ?? "waiting"),
+    appraisalStatus:
+      typeof data.appraisal_status === "string"
+        ? data.appraisal_status
+        : null,
   };
 
   debateMetaCache[debateId] = meta;
@@ -385,25 +471,25 @@ function tickTurnTimer(debateId: string) {
     room.turnSecondsLeft -= 1;
 
     if (room.turnSecondsLeft <= 0) {
-  clearTurnTimer(debateId);
+      clearTurnTimer(debateId);
 
-  const currentStage = getCurrentStage(room);
+      const currentStage = getCurrentStage(room);
 
-  io.to(roomKey(debateId)).emit("turn_timeout", {
-    debateId,
-    userId: room.currentTurn,
-    username: room.currentTurn
-      ? room.playerNames[room.currentTurn]
-      : undefined,
-    argumentPart: currentStage?.argumentPart ?? null,
-    argumentPartLabel: currentStage?.label ?? null,
-    stageIndex: room.currentStageIndex,
-    turnIndex: room.turnIndex,
-  });
+      io.to(roomKey(debateId)).emit("turn_timeout", {
+        debateId,
+        userId: room.currentTurn,
+        username: room.currentTurn
+          ? room.playerNames[room.currentTurn]
+          : undefined,
+        argumentPart: currentStage?.argumentPart ?? null,
+        argumentPartLabel: currentStage?.label ?? null,
+        stageIndex: room.currentStageIndex,
+        turnIndex: room.turnIndex,
+      });
 
-  advanceTurn(debateId);
-  return;
-}
+      advanceTurn(debateId);
+      return;
+    }
 
     io.to(roomKey(debateId)).emit("turn_tick", {
       debateId,
@@ -421,7 +507,7 @@ function startTurn(debateId: string, userId: string) {
   const currentStage = getCurrentStage(room);
 
   if (!currentStage) {
-    emitDebateCompleted(debateId);
+    void emitDebateCompleted(debateId);
     return;
   }
 
@@ -452,7 +538,7 @@ function advanceTurn(debateId: string) {
   const nextStage = getCurrentStage(room);
 
   if (!nextStage) {
-    emitDebateCompleted(debateId);
+    void emitDebateCompleted(debateId);
     return;
   }
 
@@ -652,90 +738,116 @@ io.on("connection", (socket: Socket) => {
   userSockets[user.id] ??= new Set();
   userSockets[user.id].add(socket.id);
 
-  socket.on("join_debate", async ({ debateId }: { debateId: string }) => {
-    if (!debateId) return;
+  socket.on(
+    "join_debate",
+    async ({ debateId: rawDebateId }: { debateId: string }) => {
+      const debateId = normaliseDebateId(rawDebateId);
 
-    const room = getRoom(debateId);
+      if (!debateId) {
+        socket.emit("join_error", {
+          message: "A valid debate ID is required.",
+        });
+        return;
+      }
 
-    if (!debateMetaCache[debateId]) {
       const meta = await fetchDebateMeta(debateId);
 
+      if (!meta) {
+        socket.emit("join_error", {
+          message: "This debate could not be found.",
+        });
+        return;
+      }
+
+      if (meta.status === "completed") {
+        const completedPayload = {
+          debateId,
+          appraisalStatus: meta.appraisalStatus,
+          redirectTo: `/debate/${debateId}/outcome`,
+          message: "This debate has already finished.",
+        };
+
+        socket.emit("debate_already_completed", completedPayload);
+        socket.emit("join_error", completedPayload);
+        return;
+      }
+
+      const room = getRoom(debateId);
       room.debateName = meta.name;
       room.timePerTurn = meta.timePerTurn;
-    }
+      room.playerNames[user.id] = user.username;
 
-    room.playerNames[user.id] = user.username;
+      const connectedPlayersBeforeJoin = getConnectedPlayers(debateId);
+      const isRejoin = connectedPlayersBeforeJoin.some(
+        (player) => player.id === user.id
+      );
 
-    const connectedPlayersBeforeJoin = getConnectedPlayers(debateId);
-    const isRejoin = connectedPlayersBeforeJoin.some(
-      (player) => player.id === user.id
-    );
+      if (room.status === "active") {
+        const wasParticipant = room.sides[user.id] !== undefined;
 
-    if (room.status === "active") {
-      const wasParticipant = room.sides[user.id] !== undefined;
+        if (!wasParticipant) {
+          socket.emit("join_error", {
+            message: "Debate is already in progress.",
+          });
+          return;
+        }
 
-      if (!wasParticipant) {
+        socket.join(roomKey(debateId));
+
+        const hadPendingDisconnect =
+          !!pendingDisconnectTimers[pendingDisconnectKey(debateId, user.id)];
+
+        const hadGracePeriod = !!gracePeriodTimers[debateId];
+
+        clearPendingDisconnect(debateId, user.id);
+
+        console.log(`🔄 ${user.username} joined active debate ${debateId}`);
+
+        if (hadGracePeriod) {
+          clearGracePeriod(debateId);
+          io.to(roomKey(debateId)).emit("opponent_reconnected");
+          resumeTurnTimer(debateId);
+        } else if (hadPendingDisconnect) {
+          console.log(
+            `✅ ${user.username} moved from lobby to room before grace period started`
+          );
+        }
+
+        const players = Object.entries(room.sides).map(([id, side]) => ({
+          id,
+          username: room.playerNames[id] ?? id,
+          side,
+        }));
+
+        socket.emit("debate_started", {
+          debateId,
+          debateName: room.debateName,
+          timePerTurn: room.timePerTurn,
+          players,
+          startTime: null,
+          reconnect: true,
+          currentTurnUserId: room.currentTurn,
+          secondsLeft: room.turnSecondsLeft,
+        });
+
+        return;
+      }
+
+      if (!isRejoin && connectedPlayersBeforeJoin.length >= MAX_PLAYERS) {
         socket.emit("join_error", {
-          message: "Debate is already in progress.",
+          message: "Room is full.",
         });
         return;
       }
 
       socket.join(roomKey(debateId));
+      room.readyState[user.id] ??= false;
 
-      const hadPendingDisconnect =
-        !!pendingDisconnectTimers[pendingDisconnectKey(debateId, user.id)];
+      console.log(`👥 ${user.username} joined lobby ${debateId}`);
 
-      const hadGracePeriod = !!gracePeriodTimers[debateId];
-
-      clearPendingDisconnect(debateId, user.id);
-
-      console.log(`🔄 ${user.username} joined active debate ${debateId}`);
-
-      if (hadGracePeriod) {
-        clearGracePeriod(debateId);
-        io.to(roomKey(debateId)).emit("opponent_reconnected");
-        resumeTurnTimer(debateId);
-      } else if (hadPendingDisconnect) {
-        console.log(
-          `✅ ${user.username} moved from lobby to room before grace period started`
-        );
-      }
-
-      const players = Object.entries(room.sides).map(([id, side]) => ({
-        id,
-        username: room.playerNames[id] ?? id,
-        side,
-      }));
-
-      socket.emit("debate_started", {
-        debateId,
-        debateName: room.debateName,
-        timePerTurn: room.timePerTurn,
-        players,
-        startTime: null,
-        reconnect: true,
-        currentTurnUserId: room.currentTurn,
-        secondsLeft: room.turnSecondsLeft,
-      });
-
-      return;
+      emitLobbyState(debateId);
     }
-
-    if (!isRejoin && connectedPlayersBeforeJoin.length >= MAX_PLAYERS) {
-      socket.emit("join_error", {
-        message: "Room is full.",
-      });
-      return;
-    }
-
-    socket.join(roomKey(debateId));
-    room.readyState[user.id] ??= false;
-
-    console.log(`👥 ${user.username} joined lobby ${debateId}`);
-
-    emitLobbyState(debateId);
-  });
+  );
 
   socket.on("choose_side", ({ debateId, side }: { debateId: string; side: Side }) => {
     if (!debateId || (side !== "for" && side !== "against")) return;
@@ -872,122 +984,131 @@ io.on("connection", (socket: Socket) => {
     emitLobbyState(debateId);
   });
 
-socket.on(
-  "send_message",
-  async ({ debateId, content }: { debateId: string; content: string }) => {
-    try {
-      if (!debateId || !content?.trim()) return;
+  socket.on(
+    "send_message",
+    async ({ debateId, content }: { debateId: string; content: string }) => {
+      try {
+        if (!debateId || !content?.trim()) return;
 
-      const room = rooms[debateId];
+        const room = rooms[debateId];
 
-      if (!room || room.status !== "active") return;
+        if (!room || room.status !== "active") return;
 
-      if (room.currentTurn !== user.id) {
-        socket.emit("turn_error", {
-          message: "It's not your turn yet.",
+        if (room.currentTurn !== user.id) {
+          socket.emit("turn_error", {
+            message: "It's not your turn yet.",
+          });
+          return;
+        }
+
+        const currentStage = getCurrentStage(room);
+
+        if (!currentStage) {
+          socket.emit("message_error", {
+            message: "This debate has already finished.",
+          });
+          return;
+        }
+
+        const cleanContent = content.trim();
+
+        if (countWords(cleanContent) > MAX_MESSAGE_WORDS) {
+          socket.emit("message_error", {
+            message: `Messages must be ${MAX_MESSAGE_WORDS} words or fewer.`,
+          });
+          return;
+        }
+
+        const side = room.sides[user.id] ?? null;
+        const messageDebateId = getMessageDebateId(debateId);
+
+        if (messageDebateId === null) {
+          socket.emit("message_error", {
+            message: "This debate has an invalid message reference ID.",
+          });
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from("messages")
+          .insert({
+            debate_id: messageDebateId,
+            sender_id: user.id,
+            sender_username: user.username,
+            side,
+            argument_part: currentStage.argumentPart,
+            stage_index: room.currentStageIndex,
+            turn_index: room.turnIndex,
+            content: cleanContent,
+          })
+          .select()
+          .single();
+
+        if (error) {
+          console.error("❌ Failed to save message:", error.message);
+
+          socket.emit("message_error", {
+            message: "Your message could not be saved. Please try again.",
+          });
+          return;
+        }
+
+        io.to(roomKey(debateId)).emit("new_message", {
+          id: data.id,
+          debateId: data.debate_id,
+          userId: data.sender_id,
+          username: data.sender_username,
+          side: data.side,
+          argumentPart: data.argument_part,
+          argumentPartLabel: currentStage.label,
+          stageIndex: data.stage_index,
+          turnIndex: data.turn_index,
+          content: data.content,
+          timestamp: data.created_at,
         });
-        return;
-      }
 
-      const currentStage = getCurrentStage(room);
+        advanceTurn(debateId);
+      } catch (err) {
+        console.error("❌ send_message error:", err);
 
-      if (!currentStage) {
         socket.emit("message_error", {
-          message: "This debate has already finished.",
+          message: "Something went wrong while sending your message.",
         });
-        return;
       }
-
-      const cleanContent = content.trim();
-
-      if (countWords(cleanContent) > MAX_MESSAGE_WORDS) {
-        socket.emit("message_error", {
-          message: `Messages must be ${MAX_MESSAGE_WORDS} words or fewer.`,
-        });
-        return;
-      }
-
-      const side = room.sides[user.id] ?? null;
-
-      const { data, error } = await supabase
-        .from("messages")
-        .insert({
-          debate_id: Number(debateId),
-          sender_id: user.id,
-          sender_username: user.username,
-          side,
-          argument_part: currentStage.argumentPart,
-          stage_index: room.currentStageIndex,
-          turn_index: room.turnIndex,
-          content: cleanContent,
-        })
-        .select()
-        .single();
-
-      if (error) {
-        console.error("❌ Failed to save message:", error.message);
-
-        socket.emit("message_error", {
-          message: "Your message could not be saved. Please try again.",
-        });
-
-        return;
-      }
-
-      io.to(roomKey(debateId)).emit("new_message", {
-        id: data.id,
-        debateId: data.debate_id,
-        userId: data.sender_id,
-        username: data.sender_username,
-        side: data.side,
-        argumentPart: data.argument_part,
-        argumentPartLabel: currentStage.label,
-        stageIndex: data.stage_index,
-        turnIndex: data.turn_index,
-        content: data.content,
-        timestamp: data.created_at,
-      });
-
-      advanceTurn(debateId);
-    } catch (err) {
-      console.error("❌ send_message error:", err);
-
-      socket.emit("message_error", {
-        message: "Something went wrong while sending your message.",
-      });
     }
-  }
-);
+  );
+
 
   socket.on("pass_turn", async ({ debateId }: { debateId: string }) => {
-  if (!debateId) return;
+    if (!debateId) return;
 
-  const room = rooms[debateId];
+    const room = rooms[debateId];
 
-  if (!room || room.status !== "active") return;
+    if (!room || room.status !== "active") return;
 
-  if (room.currentTurn !== user.id) {
-    socket.emit("turn_error", {
-      message: "You can only pass during your turn.",
+    if (room.currentTurn !== user.id) {
+      socket.emit("turn_error", {
+        message: "You can only pass during your turn.",
+      });
+      return;
+    }
+
+    const currentStage = getCurrentStage(room);
+
+    io.to(roomKey(debateId)).emit("turn_passed", {
+      debateId,
+      userId: user.id,
+      username: room.playerNames[user.id] ?? user.username,
+      argumentPart: currentStage?.argumentPart ?? null,
+      argumentPartLabel: currentStage?.label ?? null,
+      stageIndex: room.currentStageIndex,
+      turnIndex: room.turnIndex,
     });
-    return;
-  }
 
-  const currentStage = getCurrentStage(room);
-
-  io.to(roomKey(debateId)).emit("turn_passed", {
-    debateId,
-    userId: user.id,
-    username: room.playerNames[user.id] ?? user.username,
-    argumentPart: currentStage?.argumentPart ?? null,
-    argumentPartLabel: currentStage?.label ?? null,
-    stageIndex: room.currentStageIndex,
-    turnIndex: room.turnIndex,
+    clearTurnTimer(debateId);
+    advanceTurn(debateId);
   });
 
-  clearTurnTimer(debateId);
-  advanceTurn(debateId);
-});
 
   socket.on("leave_debate", ({ debateId }: { debateId: string }) => {
     if (!debateId) return;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/supabaseClient";
 
@@ -10,41 +10,122 @@ const OUTCOME_STEPS = [
   "Waiting for AI review",
 ] as const;
 
-interface DebateJudgement {
-  winner: "for" | "against" | "draw";
-  confidence: number | null;
-  scores?: {
-    for?: { total?: number };
-    against?: { total?: number };
+type DebateSide = "for" | "against";
+type Verdict = DebateSide | "draw";
+type AppraisalStatus =
+  | "not_ready"
+  | "pending"
+  | "processing"
+  | "completed"
+  | "failed"
+  | null;
+
+interface JudgeScore {
+  logic: number;
+  evidence: number;
+  rebuttal: number;
+  clarity: number;
+  conduct: number;
+  total: number;
+}
+
+interface DebateAppraisal {
+  canary?: string;
+  winner: Verdict;
+  scores: {
+    for: JudgeScore;
+    against: JudgeScore;
   };
-  summary: string | null;
-  feedback_for: string | null;
-  feedback_against: string | null;
+  summary: string;
+  feedback: {
+    for: string;
+    against: string;
+  };
+  confidence: number;
+  requires_stronger_review?: boolean;
+  model?: string;
+  attempts?: number;
+  initially_escalated?: boolean;
+  judged_at?: string;
+  pipeline_version?: string;
+}
+
+interface DebateRow {
+  topic: string | null;
+  appraisal_status: AppraisalStatus;
+  appraisal_error: string | null;
+  appraisal_result: DebateAppraisal | null;
+}
+
+function isDebateSide(value: string | null): value is DebateSide {
+  return value === "for" || value === "against";
+}
+
+async function readFunctionError(error: unknown): Promise<string> {
+  const fallback = "Could not generate the judgement.";
+
+  if (!error || typeof error !== "object") {
+    return fallback;
+  }
+
+  const possibleError = error as {
+    message?: string;
+    context?: Response;
+  };
+
+  if (possibleError.context instanceof Response) {
+    try {
+      const responseBody = await possibleError.context.clone().json();
+
+      if (typeof responseBody?.error === "string") {
+        return responseBody.error;
+      }
+
+      if (typeof responseBody?.message === "string") {
+        return responseBody.message;
+      }
+
+      return JSON.stringify(responseBody);
+    } catch {
+      try {
+        const responseText = await possibleError.context.clone().text();
+
+        if (responseText.trim()) {
+          return responseText;
+        }
+      } catch {
+        // Fall back to the standard error message below.
+      }
+    }
+  }
+
+  return possibleError.message || fallback;
 }
 
 export default function DebateOutcomeWaiting() {
   const params = useParams();
   const router = useRouter();
-  const debateId = params.debateId as string;
+
+  const rawDebateId = params.debateId;
+  const debateId =
+    typeof rawDebateId === "string"
+      ? rawDebateId
+      : Array.isArray(rawDebateId)
+        ? rawDebateId[0] ?? ""
+        : "";
+
   const isValidDebateId = /^\d{4}$/.test(debateId);
 
-  const [debateName] = useState(() => {
-    if (typeof window === "undefined" || !isValidDebateId) return "";
-
-    return sessionStorage.getItem(`debate_${debateId}_topic`) || "";
-  });
-  const [mySide] = useState<"for" | "against" | null>(() => {
-    if (typeof window === "undefined" || !isValidDebateId) return null;
-
-    return sessionStorage.getItem(`debate_${debateId}_side`) as
-      | "for"
-      | "against"
-      | null;
-  });
+  const [debateName, setDebateName] = useState("");
+  const [mySide, setMySide] = useState<DebateSide | null>(null);
   const [secondsWaiting, setSecondsWaiting] = useState(0);
-  const [judgement, setJudgement] = useState<DebateJudgement | null>(null);
+  const [appraisalStatus, setAppraisalStatus] =
+    useState<AppraisalStatus>(null);
+  const [judgement, setJudgement] =
+    useState<DebateAppraisal | null>(null);
   const [judgeError, setJudgeError] = useState("");
   const [judging, setJudging] = useState(false);
+  const initialJudgementStarted = useRef(false);
 
   useEffect(() => {
     if (!isValidDebateId) {
@@ -55,46 +136,175 @@ export default function DebateOutcomeWaiting() {
   useEffect(() => {
     if (!isValidDebateId) return;
 
-    const timer = window.setInterval(() => {
-      setSecondsWaiting((prev) => prev + 1);
-    }, 1000);
+    const storedTopic = sessionStorage.getItem(
+      `debate_${debateId}_topic`
+    );
 
-    return () => window.clearInterval(timer);
+    const storedSide = sessionStorage.getItem(
+      `debate_${debateId}_side`
+    );
+
+    if (storedTopic) {
+      setDebateName(storedTopic);
+    }
+
+    if (isDebateSide(storedSide)) {
+      setMySide(storedSide);
+    }
+  }, [debateId, isValidDebateId]);
+
+  const loadDebateState = useCallback(async (): Promise<DebateRow | null> => {
+    if (!isValidDebateId) return null;
+
+    const { data, error } = await supabase
+      .from("debates")
+      .select(
+        "topic, appraisal_status, appraisal_error, appraisal_result"
+      )
+      .eq("id", debateId)
+      .maybeSingle();
+
+    if (error) {
+      setJudgeError(
+        `Could not load the debate outcome: ${error.message}`
+      );
+      return null;
+    }
+
+    if (!data) {
+      setJudgeError("This debate could not be found.");
+      return null;
+    }
+
+    const debate = data as DebateRow;
+
+    if (debate.topic) {
+      setDebateName(debate.topic);
+    }
+
+    setAppraisalStatus(debate.appraisal_status);
+
+    if (
+      debate.appraisal_status === "completed" &&
+      debate.appraisal_result
+    ) {
+      setJudgement(debate.appraisal_result);
+      setJudgeError("");
+    } else if (
+      debate.appraisal_status === "failed" &&
+      debate.appraisal_error
+    ) {
+      setJudgeError(debate.appraisal_error);
+    }
+
+    return debate;
   }, [debateId, isValidDebateId]);
 
   const runJudgement = useCallback(async () => {
+    if (!isValidDebateId || judging) return;
+
     setJudging(true);
     setJudgeError("");
+    setAppraisalStatus("processing");
 
-    const { data, error } = await supabase.functions.invoke("judge-debate", {
-      body: { debate_id: debateId },
-    });
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        "judge-debate",
+        {
+          body: {
+            debateId,
+          },
+        }
+      );
 
-    if (error) {
-      setJudgeError(error.message || "Could not generate the judgement.");
+      if (error) {
+        const detailedError = await readFunctionError(error);
+        setJudgeError(detailedError);
+        await loadDebateState();
+        return;
+      }
+
+      const appraisal = data?.appraisal as
+        | DebateAppraisal
+        | undefined;
+
+      if (!appraisal) {
+        setJudgeError(
+          data?.error ||
+            "The AI judge completed without returning an appraisal."
+        );
+        await loadDebateState();
+        return;
+      }
+
+      setJudgement(appraisal);
+      setAppraisalStatus("completed");
+      setJudgeError("");
+    } catch (error) {
+      setJudgeError(
+        error instanceof Error
+          ? error.message
+          : "An unexpected judgement error occurred."
+      );
+
+      await loadDebateState();
+    } finally {
       setJudging(false);
-      return;
     }
-
-    if (!data?.judgement) {
-      setJudgeError("The judge did not return a result.");
-      setJudging(false);
-      return;
-    }
-
-    setJudgement(data.judgement as DebateJudgement);
-    setJudging(false);
-  }, [debateId]);
+  }, [
+    debateId,
+    isValidDebateId,
+    judging,
+    loadDebateState,
+  ]);
 
   useEffect(() => {
     if (!isValidDebateId) return;
 
-    const timer = window.setTimeout(() => {
-      runJudgement();
-    }, 0);
+    void loadDebateState().then((debate) => {
+      if (
+        !debate ||
+        initialJudgementStarted.current ||
+        debate.appraisal_status === "completed"
+      ) {
+        return;
+      }
 
-    return () => window.clearTimeout(timer);
-  }, [isValidDebateId, runJudgement]);
+      initialJudgementStarted.current = true;
+      void runJudgement();
+    });
+  }, [isValidDebateId, loadDebateState, runJudgement]);
+
+  useEffect(() => {
+    if (
+      !isValidDebateId ||
+      judgement ||
+      appraisalStatus !== "processing"
+    ) {
+      return;
+    }
+
+    const poller = window.setInterval(() => {
+      void loadDebateState();
+    }, 3000);
+
+    return () => window.clearInterval(poller);
+  }, [
+    appraisalStatus,
+    isValidDebateId,
+    judgement,
+    loadDebateState,
+  ]);
+
+  useEffect(() => {
+    if (!isValidDebateId || judgement) return;
+
+    const timer = window.setInterval(() => {
+      setSecondsWaiting((previous) => previous + 1);
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [isValidDebateId, judgement]);
 
   const waitingTime = useMemo(() => {
     const minutes = Math.floor(secondsWaiting / 60);
@@ -109,10 +319,19 @@ export default function DebateOutcomeWaiting() {
 
   const winnerLabel =
     judgement?.winner === "draw"
-      ? "Draw"
+      ? "The debate is a draw"
       : judgement?.winner === "for"
-      ? "FOR wins"
-      : "AGAINST wins";
+        ? "FOR wins"
+        : judgement?.winner === "against"
+          ? "AGAINST wins"
+          : "The debate is complete";
+
+  const waitingMessage =
+    appraisalStatus === "processing"
+      ? "The AI judge is reviewing the saved arguments."
+      : appraisalStatus === "pending"
+        ? "The debate is queued and ready for AI review."
+        : "The final arguments are in. Keep this page open while the AI judge appraises the debate.";
 
   if (!isValidDebateId) return null;
 
@@ -131,7 +350,9 @@ export default function DebateOutcomeWaiting() {
                   You argued{" "}
                   <span
                     className={`font-semibold ${
-                      mySide === "for" ? "text-emerald-400" : "text-red-400"
+                      mySide === "for"
+                        ? "text-emerald-400"
+                        : "text-red-400"
                     }`}
                   >
                     {mySide === "for" ? "FOR" : "AGAINST"}
@@ -160,8 +381,8 @@ export default function DebateOutcomeWaiting() {
                 judgement
                   ? "border-emerald-500/30 bg-emerald-500/10"
                   : judgeError
-                  ? "border-red-500/30 bg-red-500/10"
-                  : "border-blue-500/30 bg-blue-500/10"
+                    ? "border-red-500/30 bg-red-500/10"
+                    : "border-blue-500/30 bg-blue-500/10"
               }`}
             >
               <div className="relative h-12 w-12">
@@ -175,9 +396,9 @@ export default function DebateOutcomeWaiting() {
                   </div>
                 ) : (
                   <>
-                    <div className="absolute inset-0 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
+                    <div className="absolute inset-0 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
                     <div
-                      className="absolute inset-2 rounded-full border-2 border-emerald-400 border-b-transparent animate-spin"
+                      className="absolute inset-2 animate-spin rounded-full border-2 border-emerald-400 border-b-transparent"
                       style={{ animationDirection: "reverse" }}
                     />
                   </>
@@ -195,45 +416,48 @@ export default function DebateOutcomeWaiting() {
 
             <p className="mx-auto mb-8 max-w-md text-sm leading-relaxed text-slate-400">
               {judgement
-                ? judgement.summary || "The AI judge has appraised the debate."
-                : judgeError
-                ? judgeError
-                : "The final arguments are in. Keep this page open while the AI judge appraises the debate."}
+                ? judgement.summary ||
+                  "The AI judge has appraised the debate."
+                : judgeError || waitingMessage}
             </p>
 
             {!judgement && (
               <div className="mb-8 rounded-xl border border-slate-700 bg-slate-900/60 p-5">
-              <div className="mb-4 flex items-center justify-between gap-3 text-sm">
-                <span className="font-medium text-slate-300">
-                  Outcome status
-                </span>
+                <div className="mb-4 flex items-center justify-between gap-3 text-sm">
+                  <span className="font-medium text-slate-300">
+                    Outcome status
+                  </span>
 
-                <span className="font-mono text-slate-400">{waitingTime}</span>
-              </div>
+                  <span className="font-mono text-slate-400">
+                    {waitingTime}
+                  </span>
+                </div>
 
-              <div className="mb-5 h-1.5 overflow-hidden rounded-full bg-slate-700">
-                <div className="h-full w-2/3 rounded-full bg-blue-500 transition-all" />
-              </div>
+                <div className="mb-5 h-1.5 overflow-hidden rounded-full bg-slate-700">
+                  <div className="h-full w-2/3 rounded-full bg-blue-500 transition-all" />
+                </div>
 
-              <div className="grid gap-3 text-left sm:grid-cols-3">
-                {OUTCOME_STEPS.map((step, index) => (
-                  <div
-                    key={step}
-                    className={`rounded-lg border px-3 py-3 ${
-                      index < 2
-                        ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-                        : "border-blue-500/25 bg-blue-500/10 text-blue-300"
-                    }`}
-                  >
-                    <div className="mb-2 flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-xs font-bold">
-                      {index < 2 ? "OK" : "..."}
+                <div className="grid gap-3 text-left sm:grid-cols-3">
+                  {OUTCOME_STEPS.map((step, index) => (
+                    <div
+                      key={step}
+                      className={`rounded-lg border px-3 py-3 ${
+                        index < 2
+                          ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                          : "border-blue-500/25 bg-blue-500/10 text-blue-300"
+                      }`}
+                    >
+                      <div className="mb-2 flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-xs font-bold">
+                        {index < 2 ? "OK" : "..."}
+                      </div>
+
+                      <p className="text-xs font-semibold leading-snug">
+                        {step}
+                      </p>
                     </div>
-
-                    <p className="text-xs font-semibold leading-snug">{step}</p>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
             )}
 
             {judgement && (
@@ -242,11 +466,14 @@ export default function DebateOutcomeWaiting() {
                   <p className="text-xs font-semibold uppercase tracking-widest text-emerald-300">
                     FOR
                   </p>
+
                   <p className="mt-2 text-2xl font-bold text-white">
-                    {judgement.scores?.for?.total ?? "-"} / 50
+                    {judgement.scores?.for?.total ?? "-"} / 100
                   </p>
+
                   <p className="mt-3 text-sm leading-6 text-emerald-100/80">
-                    {judgement.feedback_for || "No feedback returned."}
+                    {judgement.feedback?.for ||
+                      "No feedback returned."}
                   </p>
                 </div>
 
@@ -254,11 +481,14 @@ export default function DebateOutcomeWaiting() {
                   <p className="text-xs font-semibold uppercase tracking-widest text-red-300">
                     AGAINST
                   </p>
+
                   <p className="mt-2 text-2xl font-bold text-white">
-                    {judgement.scores?.against?.total ?? "-"} / 50
+                    {judgement.scores?.against?.total ?? "-"} / 100
                   </p>
+
                   <p className="mt-3 text-sm leading-6 text-red-100/80">
-                    {judgement.feedback_against || "No feedback returned."}
+                    {judgement.feedback?.against ||
+                      "No feedback returned."}
                   </p>
                 </div>
               </div>
@@ -266,7 +496,9 @@ export default function DebateOutcomeWaiting() {
 
             {judgeError && !judgement && (
               <button
-                onClick={runJudgement}
+                onClick={() => {
+                  void runJudgement();
+                }}
                 disabled={judging}
                 className="mr-3 rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500"
               >
@@ -280,6 +512,20 @@ export default function DebateOutcomeWaiting() {
             >
               Return to Dashboard
             </button>
+
+            {judgement?.model && (
+              <p className="mt-5 text-xs text-slate-500">
+                Judged with {judgement.model}
+                {judgement.attempts
+                  ? ` · ${judgement.attempts} appraisal ${
+                      judgement.attempts === 1 ? "pass" : "passes"
+                    }`
+                  : ""}
+                {judgement.pipeline_version
+                  ? ` · Pipeline ${judgement.pipeline_version}`
+                  : ""}
+              </p>
+            )}
           </div>
         </div>
       </main>
