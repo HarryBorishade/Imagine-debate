@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/supabaseClient";
+import { SiteFooter } from "@/components/SiteFooter";
+import { JsonLd } from "@/components/JsonLd";
+import { SITE } from "@/lib/site";
 
 interface User {
   id: string;
@@ -80,8 +83,23 @@ const STEPS = [
     body: "Argue for or against the motion in timed rounds, with the option to pass early.",
   },
   {
-    title: "Review the case",
-    body: "Keep the debate focused on claims, evidence, rebuttal, and clarity.",
+    title: "Get the verdict",
+    body: "An impartial AI judge scores the transcript and updates your rating.",
+  },
+];
+
+const FAQ_TEASER = [
+  {
+    q: "How is the winner decided?",
+    a: "An AI judge scores logic, evidence, rebuttal, clarity, and conduct across the full transcript.",
+  },
+  {
+    q: "What if my opponent leaves?",
+    a: "They get a grace period to reconnect; if they don't return, you win by default.",
+  },
+  {
+    q: "Is it free?",
+    a: "Yes — creating rooms, debating, and receiving an AI outcome are all free.",
   },
 ];
 
@@ -163,7 +181,7 @@ export default function Home() {
         return;
       }
 
-      if (data.status === "finished") {
+      if (data.status === "completed") {
         setJoinError("That debate has already finished.");
         setJoining(false);
         return;
@@ -178,37 +196,56 @@ export default function Home() {
     }
   };
 
+  const websiteJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: SITE.name,
+    url: SITE.url,
+    description: SITE.description,
+    potentialAction: {
+      "@type": "SearchAction",
+      target: `${SITE.url}/debate/join?code={code}`,
+      "query-input": "required name=code",
+    },
+  };
+
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#101214]">
-        <div className="h-8 w-8 rounded-full border-2 border-white/20 border-t-emerald-300 animate-spin" />
+      <div className="flex min-h-screen items-center justify-center bg-ink">
+        <div className="h-8 w-8 rounded-full border-2 border-white/20 border-t-accent animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#101214] text-[#f4f1ea]">
-      <nav className="sticky top-0 z-40 border-b border-white/10 bg-[#101214]/90 backdrop-blur">
+    <div className="min-h-screen bg-ink text-cream">
+      <nav className="sticky top-0 z-40 border-b border-line bg-ink/90 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
           <Link href="/" className="text-base font-semibold tracking-tight">
             Imagine Debate
           </Link>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2">
+            <Link
+              href="/faq"
+              className="hidden rounded-md px-3 py-2 text-sm text-muted transition-colors hover:bg-white/5 hover:text-white sm:block"
+            >
+              FAQ
+            </Link>
             {user ? (
               <>
-                <span className="hidden text-sm text-[#b9b3a7] sm:block">
+                <span className="hidden text-sm text-muted sm:block">
                   {displayName}
                 </span>
                 <Link
                   href="/dashboard"
-                  className="rounded-md px-3 py-2 text-sm text-[#d7d0c2] hover:bg-white/8 hover:text-white"
+                  className="rounded-md px-3 py-2 text-sm text-[#d7d0c2] transition-colors hover:bg-white/8 hover:text-white"
                 >
                   Dashboard
                 </Link>
                 <button
                   onClick={handleLogout}
-                  className="rounded-md px-3 py-2 text-sm text-[#9f988c] hover:bg-white/8 hover:text-white"
+                  className="rounded-md px-3 py-2 text-sm text-muted-2 transition-colors hover:bg-white/8 hover:text-white"
                 >
                   Sign out
                 </button>
@@ -217,13 +254,13 @@ export default function Home() {
               <>
                 <Link
                   href="/auth/login"
-                  className="rounded-md px-3 py-2 text-sm text-[#c7c0b3] hover:bg-white/8 hover:text-white"
+                  className="rounded-md px-3 py-2 text-sm text-[#c7c0b3] transition-colors hover:bg-white/8 hover:text-white"
                 >
                   Sign in
                 </Link>
                 <Link
                   href="/auth/signup"
-                  className="rounded-md bg-[#f4f1ea] px-4 py-2 text-sm font-semibold text-[#101214] hover:bg-white"
+                  className="rounded-md bg-cream px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-white"
                 >
                   Create account
                 </Link>
@@ -233,42 +270,47 @@ export default function Home() {
         </div>
       </nav>
 
-      <main>
+      <main id="main-content" className="pb-24 sm:pb-0">
         <section className="mx-auto grid max-w-6xl gap-10 px-5 pb-14 pt-14 lg:grid-cols-[1fr_430px] lg:items-end lg:pt-20">
           <div>
-            <p className="mb-5 text-xs font-semibold uppercase tracking-[0.28em] text-emerald-300/80">
+            <p className="mb-5 text-xs font-semibold uppercase tracking-[0.28em] text-accent/80">
               Timed arguments for sharper thinking
             </p>
             <h1 className="max-w-3xl text-5xl font-semibold leading-[1.02] tracking-tight text-[#fffaf0] sm:text-6xl">
               Debate without the noise.
             </h1>
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-[#b9b3a7]">
+            <p className="mt-6 max-w-2xl text-lg leading-8 text-muted">
               Create a motion, invite an opponent, and make your case in a
-              structured room built for clear claims and clean rebuttals.
+              structured room built for clear claims and clean rebuttals — then
+              get an impartial verdict.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <button
                 onClick={() => handleStartDebate()}
-                className="rounded-md bg-[#f4f1ea] px-5 py-3 text-sm font-semibold text-[#101214] hover:bg-white"
+                className="rounded-md bg-cream px-5 py-3 text-sm font-semibold text-ink transition-colors hover:bg-white"
               >
                 Start a debate
               </button>
               <Link
                 href={user ? "/dashboard" : "/auth/signup"}
-                className="rounded-md border border-white/12 px-5 py-3 text-center text-sm font-semibold text-[#e8e1d2] hover:bg-white/8"
+                className="rounded-md border border-white/12 px-5 py-3 text-center text-sm font-semibold text-[#e8e1d2] transition-colors hover:bg-white/8"
               >
-                View dashboard
+                {user ? "View dashboard" : "Create free account"}
               </Link>
             </div>
+
+            <p className="mt-5 text-sm text-muted-2">
+              Free to play · No downloads · Structured, timed rounds
+            </p>
           </div>
 
-          <div className="border border-white/10 bg-[#171a1d] p-5 shadow-2xl shadow-black/20">
-            <div className="border-b border-white/10 pb-4">
+          <div className="border border-line bg-surface p-5 shadow-2xl shadow-black/20">
+            <div className="border-b border-line pb-4">
               <p className="text-sm font-semibold text-[#fffaf0]">
                 Join an existing room
               </p>
-              <p className="mt-1 text-sm text-[#9f988c]">
+              <p className="mt-1 text-sm text-muted-2">
                 Enter the code once. We will take you straight to the lobby.
               </p>
             </div>
@@ -289,12 +331,12 @@ export default function Home() {
                   }}
                   placeholder="0000"
                   maxLength={4}
-                  className="min-w-0 flex-1 rounded-md border border-white/10 bg-black/20 px-4 py-3 font-mono text-lg tracking-[0.45em] text-white placeholder:text-white/20 focus:border-emerald-300 focus:outline-none"
+                  className="min-w-0 flex-1 rounded-md border border-line bg-black/20 px-4 py-3 font-mono text-lg tracking-[0.45em] text-white placeholder:text-white/20 focus:border-accent focus:outline-none"
                 />
                 <button
                   type="submit"
                   disabled={joining || joinCode.length !== 4}
-                  className="rounded-md bg-emerald-300 px-5 py-3 text-sm font-semibold text-[#111411] hover:bg-emerald-200 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
+                  className="rounded-md bg-accent px-5 py-3 text-sm font-semibold text-[#111411] transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
                 >
                   {joining ? "Joining" : "Join"}
                 </button>
@@ -303,14 +345,25 @@ export default function Home() {
                 <p className="mt-3 text-sm text-rose-300">{joinError}</p>
               )}
             </form>
+
+            <p className="mt-4 text-xs text-muted-2">
+              Don&apos;t have a code?{" "}
+              <button
+                onClick={() => handleStartDebate()}
+                className="text-accent underline-offset-4 hover:underline"
+              >
+                Create your own room
+              </button>
+              .
+            </p>
           </div>
         </section>
 
-        <section className="border-y border-white/10 bg-[#141719]">
+        <section className="border-y border-line bg-[#141719]">
           <div className="mx-auto grid max-w-6xl gap-px px-5 py-10 sm:grid-cols-3">
             {STEPS.map((step, index) => (
               <div key={step.title} className="bg-[#141719] py-4 sm:px-6">
-                <p className="text-xs font-semibold text-emerald-300/70">
+                <p className="text-xs font-semibold text-accent/70">
                   {String(index + 1).padStart(2, "0")}
                 </p>
                 <h2 className="mt-3 text-base font-semibold text-[#fffaf0]">
@@ -327,7 +380,7 @@ export default function Home() {
         <section className="mx-auto max-w-6xl px-5 py-14">
           <div className="mb-6 flex items-end justify-between gap-4">
             <div>
-              <p className="text-sm font-semibold text-emerald-300/80">
+              <p className="text-sm font-semibold text-accent/80">
                 Featured motions
               </p>
               <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[#fffaf0]">
@@ -336,7 +389,7 @@ export default function Home() {
             </div>
             <button
               onClick={() => handleStartDebate()}
-              className="hidden rounded-md border border-white/12 px-4 py-2 text-sm font-semibold text-[#d7d0c2] hover:bg-white/8 sm:block"
+              className="hidden rounded-md border border-white/12 px-4 py-2 text-sm font-semibold text-[#d7d0c2] transition-colors hover:bg-white/8 sm:block"
             >
               Custom motion
             </button>
@@ -346,13 +399,13 @@ export default function Home() {
             {FEATURED_DEBATES.map((debate) => (
               <article
                 key={debate.id}
-                className="flex min-h-64 flex-col border border-white/10 bg-[#171a1d] p-5 transition hover:border-emerald-300/30 hover:bg-[#1b1f22]"
+                className="flex min-h-64 flex-col border border-line bg-surface p-5 transition hover:border-accent/30 hover:bg-surface-2"
               >
                 <div className="mb-4 flex flex-wrap items-center gap-2">
                   {debate.tags.map((tag) => (
                     <span
                       key={tag}
-                      className="rounded border border-white/10 px-2 py-1 text-xs text-[#9f988c]"
+                      className="rounded border border-line px-2 py-1 text-xs text-muted-2"
                     >
                       {tag}
                     </span>
@@ -371,16 +424,16 @@ export default function Home() {
                   {debate.description}
                 </p>
 
-                <div className="mt-6 flex gap-2 border-t border-white/10 pt-4">
+                <div className="mt-6 flex gap-2 border-t border-line pt-4">
                   <button
                     onClick={() => handleStartDebate(debate.id)}
-                    className="flex-1 rounded-md bg-[#f4f1ea] px-3 py-2 text-sm font-semibold text-[#101214] hover:bg-white"
+                    className="flex-1 rounded-md bg-cream px-3 py-2 text-sm font-semibold text-ink transition-colors hover:bg-white"
                   >
                     Use this motion
                   </button>
                   <Link
                     href="/debate/join"
-                    className="rounded-md border border-white/10 px-3 py-2 text-sm font-semibold text-[#c7c0b3] hover:bg-white/8"
+                    className="rounded-md border border-line px-3 py-2 text-sm font-semibold text-[#c7c0b3] transition-colors hover:bg-white/8"
                   >
                     Join
                   </Link>
@@ -389,19 +442,73 @@ export default function Home() {
             ))}
           </div>
         </section>
+
+        <section className="border-t border-line bg-[#141719]">
+          <div className="mx-auto max-w-6xl px-5 py-14">
+            <div className="mb-6 flex items-end justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-accent/80">
+                  Common questions
+                </p>
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[#fffaf0]">
+                  Good to know before you start.
+                </h2>
+              </div>
+              <Link
+                href="/faq"
+                className="hidden rounded-md border border-white/12 px-4 py-2 text-sm font-semibold text-[#d7d0c2] transition-colors hover:bg-white/8 sm:block"
+              >
+                All FAQs
+              </Link>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              {FAQ_TEASER.map((item) => (
+                <div
+                  key={item.q}
+                  className="border border-line bg-surface p-5"
+                >
+                  <h3 className="text-base font-semibold text-[#fffaf0]">
+                    {item.q}
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-[#a9a295]">
+                    {item.a}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <Link
+              href="/faq"
+              className="mt-6 inline-flex text-sm font-semibold text-accent underline-offset-4 hover:underline sm:hidden"
+            >
+              Read all FAQs →
+            </Link>
+          </div>
+        </section>
       </main>
 
-      <footer className="border-t border-white/10">
-        <div className="mx-auto flex max-w-6xl flex-col gap-2 px-5 py-7 text-sm text-[#8f887c] sm:flex-row sm:items-center sm:justify-between">
-          <span>Imagine Debate</span>
-          <div className="flex flex-wrap items-center gap-4">
-            <Link href="/cookies" className="hover:text-[#f4f1ea]">
-              Cookies
-            </Link>
-            <span>Structured rooms for sharper arguments.</span>
-          </div>
+      <SiteFooter />
+
+      {/* Sticky mobile call-to-action — one-tap start/join on small screens. */}
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-ink/95 px-4 py-3 backdrop-blur sm:hidden">
+        <div className="flex gap-2">
+          <button
+            onClick={() => handleStartDebate()}
+            className="flex-1 rounded-md bg-accent px-4 py-3 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong"
+          >
+            Start a debate
+          </button>
+          <Link
+            href="/debate/join"
+            className="rounded-md border border-line-strong px-4 py-3 text-sm font-semibold text-cream transition-colors hover:bg-white/5"
+          >
+            Join
+          </Link>
         </div>
-      </footer>
+      </div>
+
+      <JsonLd data={websiteJsonLd} />
     </div>
   );
 }

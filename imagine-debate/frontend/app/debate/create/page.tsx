@@ -4,6 +4,7 @@ import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/supabaseClient";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
 
 interface DebateFormData {
   topic: string;
@@ -184,6 +185,14 @@ function CreateDebateContent() {
       </nav>
 
       <div className="max-w-2xl mx-auto px-6 py-12">
+
+        <Breadcrumbs
+          items={[
+            { label: "Home", href: "/" },
+            { label: "Dashboard", href: "/dashboard" },
+            { label: "New debate" },
+          ]}
+        />
 
         {/* Header */}
         <div className="mb-10">

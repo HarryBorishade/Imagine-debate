@@ -1,8 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { supabase } from "@/supabaseClient";
 import Link from "next/link";
+import { supabase } from "@/supabaseClient";
+import {
+  evaluatePassword,
+  PasswordStrengthMeter,
+} from "@/components/PasswordStrength";
 
 export default function SignupPage() {
   const [username, setUsername] = useState("");
@@ -14,205 +18,210 @@ export default function SignupPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // Validation helpers
   const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   const isValidUsername = username.length >= 3 && username.length <= 20;
-  const isValidPassword = password.length >= 8;
+  const passwordStrength = evaluatePassword(password);
   const passwordsMatch = password === confirmPassword && password !== "";
   const isFormValid =
-    username && email && password && confirmPassword && isValidEmail && isValidUsername && isValidPassword && passwordsMatch;
+    isValidUsername &&
+    isValidEmail &&
+    passwordStrength.isAcceptable &&
+    passwordsMatch;
 
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setSuccess("");
 
-    // Client-side validation
-    if (!isValidEmail) {
-      setError("Please enter a valid email address");
-      return;
-    }
     if (!isValidUsername) {
-      setError("Username must be 3-20 characters");
+      setError("Username must be 3–20 characters.");
       return;
     }
-    if (!isValidPassword) {
-      setError("Password must be at least 8 characters");
+    if (!isValidEmail) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+    if (!passwordStrength.isAcceptable) {
+      setError("Please choose a stronger password.");
       return;
     }
     if (!passwordsMatch) {
-      setError("Passwords do not match");
+      setError("Passwords do not match.");
       return;
     }
 
     setLoading(true);
 
-    // Create the user in Supabase Auth
-    const { error } = await supabase.auth.signUp({
+    const { error: signUpError } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: {
-          username: username,
-        },
+        data: { username },
       },
     });
 
-    if (error) {
-      setError(error.message);
+    if (signUpError) {
+      setError(signUpError.message);
       setLoading(false);
     } else {
       setSuccess(
-        "Signup successful! 🎉 Check your email to verify your account and start debating!"
+        "Account created. Check your email to verify your address, then sign in and start debating."
       );
-      // Reset form
       setTimeout(() => {
         setUsername("");
         setEmail("");
         setPassword("");
         setConfirmPassword("");
-      }, 2000);
+      }, 1500);
     }
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 to-slate-800 px-4">
-      <div className="w-full max-w-md rounded-lg bg-white p-8 shadow-xl">
-        {/* Header */}
-        <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold text-slate-900">Join IMAGINE-DEBATE</h1>
-          <p className="mt-2 text-slate-600">Create an account to start debating</p>
-        </div>
+    <div className="flex min-h-screen flex-col bg-ink px-4 py-10 text-cream">
+      <div className="mx-auto w-full max-w-md">
+        <Link
+          href="/"
+          className="mb-8 inline-block text-sm font-semibold tracking-tight text-cream"
+        >
+          ← Imagine Debate
+        </Link>
 
-        {/* Error Message */}
-        {error && (
-          <div className="mb-4 rounded-lg bg-red-50 p-4 text-sm text-red-700 border border-red-200">
-            {error}
-          </div>
-        )}
-
-        {/* Success Message */}
-        {success && (
-          <div className="mb-4 rounded-lg bg-green-50 p-4 text-sm text-green-700 border border-green-200">
-            {success}
-          </div>
-        )}
-
-        {/* Form */}
-        <form onSubmit={handleSignup} className="space-y-4">
-          {/* Username Input */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Username
-            </label>
-            <input
-              type="text"
-              placeholder="debater_pro"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              disabled={loading}
-              className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-3 text-slate-900 placeholder-slate-400 transition-all focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:bg-slate-100"
-            />
-            {username && !isValidUsername && (
-              <p className="mt-1 text-xs text-red-600">3-20 characters required</p>
-            )}
-            {isValidUsername && (
-              <p className="mt-1 text-xs text-green-600">✓ Username looks good</p>
-            )}
+        <div className="rounded-2xl border border-line bg-surface p-7 sm:p-9">
+          <div className="mb-7">
+            <h1 className="text-2xl font-semibold tracking-tight text-[#fffaf0]">
+              Create your account
+            </h1>
+            <p className="mt-1.5 text-sm text-muted-2">
+              Free to join. Start debating in under a minute.
+            </p>
           </div>
 
-          {/* Email Input */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Email Address
-            </label>
-            <input
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={loading}
-              className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-3 text-slate-900 placeholder-slate-400 transition-all focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:bg-slate-100"
-            />
-            {email && !isValidEmail && (
-              <p className="mt-1 text-xs text-red-600">Please enter a valid email</p>
-            )}
-          </div>
-
-          {/* Password Input */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Password
-            </label>
-            <div className="relative">
-              <input
-                type={showPassword ? "text" : "password"}
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={loading}
-                className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-3 text-slate-900 placeholder-slate-400 transition-all focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:bg-slate-100"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-3.5 text-slate-600 hover:text-slate-900"
-              >
-                {showPassword ? "Hide" : "Show"}
-              </button>
+          {error && (
+            <div
+              role="alert"
+              className="mb-5 rounded-lg border border-against/30 bg-against/10 px-4 py-3 text-sm text-rose-200"
+            >
+              {error}
             </div>
-            {password && !isValidPassword && (
-              <p className="mt-1 text-xs text-red-600">Minimum 8 characters</p>
-            )}
-            {isValidPassword && (
-              <p className="mt-1 text-xs text-green-600">✓ Password is strong</p>
-            )}
-          </div>
+          )}
 
-          {/* Confirm Password Input */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Confirm Password
-            </label>
-            <input
-              type={showPassword ? "text" : "password"}
-              placeholder="••••••••"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              disabled={loading}
-              className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-3 text-slate-900 placeholder-slate-400 transition-all focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:bg-slate-100"
-            />
-            {confirmPassword && !passwordsMatch && (
-              <p className="mt-1 text-xs text-red-600">Passwords do not match</p>
-            )}
-            {passwordsMatch && (
-              <p className="mt-1 text-xs text-green-600">✓ Passwords match</p>
-            )}
-          </div>
+          {success && (
+            <div className="mb-5 rounded-lg border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-emerald-200">
+              {success}
+            </div>
+          )}
 
-          {/* Signup Button */}
-          <button
-            type="submit"
-            disabled={!isFormValid || loading}
-            className="w-full rounded-lg bg-blue-600 py-3 font-semibold text-white transition-all hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed mt-6"
-          >
-            {loading ? "Creating account..." : "Create Account"}
-          </button>
-        </form>
+          <form onSubmit={handleSignup} className="space-y-5" noValidate>
+            <div>
+              <label htmlFor="username" className="mb-2 block text-sm font-medium text-cream">
+                Username
+              </label>
+              <input
+                id="username"
+                type="text"
+                placeholder="debater_pro"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                disabled={loading}
+                autoComplete="username"
+                className="w-full rounded-lg border border-line bg-black/20 px-4 py-3 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none disabled:opacity-60"
+              />
+              {username && !isValidUsername && (
+                <p className="mt-1.5 text-xs text-rose-300">3–20 characters required.</p>
+              )}
+            </div>
 
-        {/* Divider */}
-        <div className="my-6 flex items-center gap-3">
-          <div className="flex-1 border-t border-slate-200"></div>
-          <span className="text-xs text-slate-500">OR</span>
-          <div className="flex-1 border-t border-slate-200"></div>
+            <div>
+              <label htmlFor="email" className="mb-2 block text-sm font-medium text-cream">
+                Email address
+              </label>
+              <input
+                id="email"
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={loading}
+                autoComplete="email"
+                className="w-full rounded-lg border border-line bg-black/20 px-4 py-3 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none disabled:opacity-60"
+              />
+              {email && !isValidEmail && (
+                <p className="mt-1.5 text-xs text-rose-300">Please enter a valid email.</p>
+              )}
+            </div>
+
+            <div>
+              <label htmlFor="password" className="mb-2 block text-sm font-medium text-cream">
+                Password
+              </label>
+              <div className="relative">
+                <input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Create a strong password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={loading}
+                  autoComplete="new-password"
+                  className="w-full rounded-lg border border-line bg-black/20 px-4 py-3 pr-16 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none disabled:opacity-60"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-muted-2 hover:text-cream"
+                >
+                  {showPassword ? "Hide" : "Show"}
+                </button>
+              </div>
+              <PasswordStrengthMeter password={password} />
+            </div>
+
+            <div>
+              <label htmlFor="confirm" className="mb-2 block text-sm font-medium text-cream">
+                Confirm password
+              </label>
+              <input
+                id="confirm"
+                type={showPassword ? "text" : "password"}
+                placeholder="Re-enter your password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                disabled={loading}
+                autoComplete="new-password"
+                className="w-full rounded-lg border border-line bg-black/20 px-4 py-3 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none disabled:opacity-60"
+              />
+              {confirmPassword && !passwordsMatch && (
+                <p className="mt-1.5 text-xs text-rose-300">Passwords do not match.</p>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              disabled={!isFormValid || loading}
+              className="w-full rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
+            >
+              {loading ? "Creating account…" : "Create account"}
+            </button>
+          </form>
+
+          <p className="mt-6 text-center text-sm text-muted-2">
+            Already have an account?{" "}
+            <Link href="/auth/login" className="font-semibold text-accent hover:underline">
+              Sign in
+            </Link>
+          </p>
         </div>
 
-        {/* Login Link */}
-        <p className="text-center text-slate-600">
-          Already have an account?{" "}
-          <Link href="/auth/login" className="font-semibold text-blue-600 hover:text-blue-700">
-            Sign in here
+        <p className="mt-6 text-center text-xs leading-5 text-muted-2">
+          By creating an account you agree to our{" "}
+          <Link href="/privacy" className="underline-offset-4 hover:text-cream hover:underline">
+            privacy policy
+          </Link>{" "}
+          and{" "}
+          <Link href="/cookies" className="underline-offset-4 hover:text-cream hover:underline">
+            cookie use
           </Link>
+          .
         </p>
       </div>
     </div>

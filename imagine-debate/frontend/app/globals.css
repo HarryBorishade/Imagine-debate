@@ -1,24 +1,118 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   Brand tokens. Imagine Debate is a committed dark theme: warm charcoal
+   surfaces, cream text, an emerald accent, and for/against as emerald/rose.
+   Naming the palette here (instead of scattering hex codes) keeps every page
+   visually consistent and makes future theming a one-file change.
+--------------------------------------------------------------------------- */
 :root {
   --background: #101214;
   --foreground: #f4f1ea;
+
+  --surface: #171a1d;
+  --surface-2: #1b1f22;
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.16);
+
+  --muted: #b9b3a7;
+  --muted-2: #8f887c;
+
+  --accent: #6ee7b7;
+  --accent-strong: #34d399;
+
+  --for: #6ee7b7;
+  --against: #fb7185;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-ink: var(--background);
+  --color-cream: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-muted: var(--muted);
+  --color-muted-2: var(--muted-2);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-for: var(--for);
+  --color-against: var(--against);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI",
+    Arial, Helvetica, sans-serif;
+  /* Avoid iOS rubber-band flashes of white behind the dark app. */
+  overscroll-behavior-y: none;
 }
 
 ::selection {
   background: rgba(110, 231, 183, 0.28);
   color: #fffaf0;
+}
+
+/* Visible, consistent keyboard focus everywhere. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* Accessible "skip to content" link — hidden until focused. */
+.skip-link {
+  position: fixed;
+  top: -60px;
+  left: 12px;
+  z-index: 100;
+  border-radius: 8px;
+  background: var(--accent);
+  padding: 10px 16px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #0d1117;
+  transition: top 0.15s ease;
+}
+.skip-link:focus {
+  top: 12px;
+}
+
+/* Keep autofilled inputs readable on dark form fields. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill {
+  -webkit-text-fill-color: var(--foreground);
+  caret-color: var(--foreground);
+  transition: background-color 9999s ease-in-out 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

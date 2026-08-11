@@ -53,7 +53,7 @@ function JoinDebateContent() {
         return;
       }
 
-      if (data.status === "finished") {
+      if (data.status === "completed") {
         setError("This debate has already finished.");
         setLoading(false);
         return;
