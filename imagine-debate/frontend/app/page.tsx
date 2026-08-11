@@ -209,14 +209,6 @@ export default function Home() {
     },
   };
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-ink">
-        <div className="h-8 w-8 rounded-full border-2 border-white/20 border-t-accent animate-spin" />
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-ink text-cream">
       <nav className="sticky top-0 z-40 border-b border-line bg-ink/90 backdrop-blur">
@@ -232,7 +224,12 @@ export default function Home() {
             >
               FAQ
             </Link>
-            {user ? (
+            {loading ? (
+              // Neutral placeholder while the session check is in flight —
+              // avoids flashing "Sign in" then immediately swapping to the
+              // signed-in state for returning users.
+              <div className="h-9 w-24 animate-pulse rounded-md bg-white/5" />
+            ) : user ? (
               <>
                 <span className="hidden text-sm text-muted sm:block">
                   {displayName}

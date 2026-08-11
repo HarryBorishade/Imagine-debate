@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SITE, FOOTER_NAV } from "@/lib/site";
+import { CookiePreferencesButton } from "./CookiePreferencesButton";
 
 // Shared footer for marketing, legal, and app-adjacent pages. Cross-links every
 // key route so users (and crawlers) always have a path deeper into the site.
@@ -40,11 +41,14 @@ export function SiteFooter() {
           ))}
         </div>
 
-        <div className="mt-10 flex flex-col gap-2 border-t border-line pt-6 text-sm text-muted-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-10 flex flex-col gap-3 border-t border-line pt-6 text-sm text-muted-2 sm:flex-row sm:items-center sm:justify-between">
           <span>
             © {year} {SITE.name}. All rights reserved.
           </span>
-          <span>{SITE.responseTimePromise}</span>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            <span>{SITE.responseTimePromise}</span>
+            <CookiePreferencesButton />
+          </div>
         </div>
       </div>
     </footer>
