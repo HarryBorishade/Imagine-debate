@@ -39,21 +39,22 @@ function JoinDebateContent() {
     setLoading(true);
 
     try {
-      const { data, error: fetchError } = await supabase
-        .from("debates")
-        .select("id, status")
-        .eq("id", trimmed)
-        .maybeSingle();
+      const { data, error: fetchError } = await supabase.rpc(
+        "check_debate_code",
+        { p_code: trimmed }
+      );
 
       if (fetchError) throw fetchError;
 
-      if (!data) {
+      const match = data?.[0];
+
+      if (!match) {
         setError("No debate found with that code. Double-check and try again.");
         setLoading(false);
         return;
       }
 
-      if (data.status === "completed") {
+      if (match.status === "completed") {
         setError("This debate has already finished.");
         setLoading(false);
         return;

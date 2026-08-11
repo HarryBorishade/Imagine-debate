@@ -15,6 +15,19 @@ interface Debate {
   time_per_turn?: number | null;
 }
 
+interface Profile {
+  rating: number;
+  wins: number;
+  losses: number;
+  draws: number;
+}
+
+interface SessionUser {
+  id: string;
+  email?: string;
+  user_metadata?: { username?: string };
+}
+
 interface UserStats {
   totalDebates: number;
   activeDebates: number;
@@ -24,8 +37,10 @@ interface UserStats {
 
 export default function Dashboard() {
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<SessionUser | null>(null);
   const [debates, setDebates] = useState<Debate[]>([]);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
   const [historyRange, setHistoryRange] = useState<HistoryRange>(7);
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -50,7 +65,39 @@ export default function Dashboard() {
   }, [router]);
 
   useEffect(() => {
-    if (!user?.id) return;
+    const userId = user?.id;
+    if (!userId) return;
+
+    let cancelled = false;
+
+    async function loadProfile() {
+      setProfileLoading(true);
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("rating, wins, losses, draws")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (cancelled) return;
+
+      if (!error && data) {
+        setProfile(data as Profile);
+      }
+
+      setProfileLoading(false);
+    }
+
+    loadProfile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    const userId = user?.id;
+    if (!userId) return;
 
     let cancelled = false;
 
@@ -61,10 +108,15 @@ export default function Dashboard() {
       const since = new Date();
       since.setDate(since.getDate() - historyRange);
 
+      // Include debates the user took part in, not just ones they created —
+      // otherwise every debate joined via a shared code silently vanishes
+      // from history the moment it starts.
       const { data, error } = await supabase
         .from("debates")
         .select("id, topic, status, created_at, time_per_turn")
-        .eq("created_by", user.id)
+        .or(
+          `created_by.eq.${userId},for_player_id.eq.${userId},against_player_id.eq.${userId}`
+        )
         .gte("created_at", since.toISOString())
         .order("created_at", { ascending: false });
 
@@ -89,7 +141,7 @@ export default function Dashboard() {
   }, [historyRange, user?.id]);
 
   const activeDebates = useMemo(
-    () => debates.filter((debate) => debate.status !== "finished"),
+    () => debates.filter((debate) => debate.status !== "completed"),
     [debates]
   );
 
@@ -99,7 +151,7 @@ export default function Dashboard() {
     () => ({
       totalDebates: debates.length,
       activeDebates: activeDebates.length,
-      completedDebates: debates.filter((debate) => debate.status === "finished")
+      completedDebates: debates.filter((debate) => debate.status === "completed")
         .length,
       waitingDebates: debates.filter((debate) => debate.status === "waiting")
         .length,
@@ -109,40 +161,49 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#101214]">
-        <div className="h-8 w-8 rounded-full border-2 border-white/20 border-t-emerald-300 animate-spin" />
+      <div className="flex min-h-screen items-center justify-center bg-ink">
+        <div className="h-8 w-8 rounded-full border-2 border-white/20 border-t-accent animate-spin" />
       </div>
     );
   }
 
   const displayName = user?.user_metadata?.username || "Debater";
+  const totalGames = profile ? profile.wins + profile.losses + profile.draws : 0;
+  const winRate =
+    profile && totalGames > 0 ? Math.round((profile.wins / totalGames) * 100) : null;
 
   return (
-    <div className="min-h-screen bg-[#101214] text-[#f4f1ea]">
-      <header className="border-b border-white/10 bg-[#101214]/90">
+    <div className="min-h-screen bg-ink text-cream">
+      <header className="border-b border-line bg-ink/90">
         <div className="mx-auto flex max-w-6xl flex-col gap-5 px-5 py-6 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <Link href="/" className="text-sm font-semibold text-emerald-300/80">
+            <Link href="/" className="text-sm font-semibold text-accent/80">
               Imagine Debate
             </Link>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight text-[#fffaf0]">
               Dashboard
             </h1>
-            <p className="mt-1 text-sm text-[#a9a295]">
+            <p className="mt-1 text-sm text-muted">
               Welcome back, {displayName}
             </p>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Link
               href="/"
-              className="rounded-md border border-white/10 px-4 py-2 text-sm font-semibold text-[#d7d0c2] hover:bg-white/8"
+              className="rounded-md border border-line px-4 py-2 text-sm font-semibold text-[#d7d0c2] transition-colors hover:bg-white/8"
             >
               Home
             </Link>
             <Link
+              href="/settings"
+              className="rounded-md border border-line px-4 py-2 text-sm font-semibold text-[#d7d0c2] transition-colors hover:bg-white/8"
+            >
+              Settings
+            </Link>
+            <Link
               href="/debate/create"
-              className="rounded-md bg-[#f4f1ea] px-4 py-2 text-sm font-semibold text-[#101214] hover:bg-white"
+              className="rounded-md bg-cream px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-white"
             >
               New debate
             </Link>
@@ -152,12 +213,12 @@ export default function Dashboard() {
 
       <main className="mx-auto grid max-w-6xl gap-6 px-5 py-8 lg:grid-cols-[1fr_320px]">
         <div className="space-y-6">
-          <section className="border border-white/10 bg-[#171a1d]">
-            <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+          <section className="border border-line bg-surface">
+            <div className="flex items-center justify-between border-b border-line px-5 py-4">
               <h2 className="text-base font-semibold text-[#fffaf0]">
                 Active debates
               </h2>
-              <span className="text-xs text-[#8f887c]">
+              <span className="text-xs text-muted-2">
                 {activeDebates.length} open
               </span>
             </div>
@@ -166,13 +227,13 @@ export default function Dashboard() {
               <LoadingRows />
             ) : activeDebates.length === 0 ? (
               <div className="px-5 py-10">
-                <p className="text-sm text-[#a9a295]">
+                <p className="text-sm text-muted">
                   No active debates in the selected window. Start a room and
                   share the four-digit code with an opponent.
                 </p>
                 <Link
                   href="/debate/create"
-                  className="mt-5 inline-flex rounded-md bg-emerald-300 px-4 py-2 text-sm font-semibold text-[#111411] hover:bg-emerald-200"
+                  className="mt-5 inline-flex rounded-md bg-accent px-4 py-2 text-sm font-semibold text-[#111411] hover:bg-accent-strong"
                 >
                   Start a debate
                 </Link>
@@ -182,25 +243,25 @@ export default function Dashboard() {
             )}
           </section>
 
-          <section className="border border-white/10 bg-[#171a1d]">
-            <div className="flex flex-col gap-4 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <section className="border border-line bg-surface">
+            <div className="flex flex-col gap-4 border-b border-line px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-base font-semibold text-[#fffaf0]">
                   Previous debates
                 </h2>
-                <p className="mt-1 text-sm text-[#8f887c]">
+                <p className="mt-1 text-sm text-muted-2">
                   Supabase keeps this history for 30 days.
                 </p>
               </div>
 
-              <div className="inline-flex w-fit overflow-hidden rounded-md border border-white/10 bg-black/10">
+              <div className="inline-flex w-fit overflow-hidden rounded-md border border-line bg-black/10">
                 {[7, 30].map((range) => (
                   <button
                     key={range}
                     onClick={() => setHistoryRange(range as HistoryRange)}
                     className={`px-3 py-2 text-sm font-semibold transition ${
                       historyRange === range
-                        ? "bg-emerald-300 text-[#111411]"
+                        ? "bg-accent text-[#111411]"
                         : "text-[#c7c0b3] hover:bg-white/8"
                     }`}
                   >
@@ -215,7 +276,7 @@ export default function Dashboard() {
             ) : historyLoading ? (
               <LoadingRows />
             ) : previousDebates.length === 0 ? (
-              <p className="px-5 py-8 text-sm text-[#a9a295]">
+              <p className="px-5 py-8 text-sm text-muted">
                 No debates found in the last {historyRange} days.
               </p>
             ) : (
@@ -225,7 +286,54 @@ export default function Dashboard() {
         </div>
 
         <aside className="space-y-6">
-          <section className="border border-white/10 bg-[#171a1d] p-5">
+          <section className="border border-line bg-surface p-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold text-[#fffaf0]">
+                Rating
+              </h2>
+              {winRate !== null && (
+                <span className="text-xs font-semibold text-accent">
+                  {winRate}% win rate
+                </span>
+              )}
+            </div>
+
+            {profileLoading ? (
+              <div className="mt-4 h-10 w-24 animate-pulse rounded bg-white/5" />
+            ) : (
+              <p className="mt-2 text-4xl font-semibold tracking-tight text-[#fffaf0]">
+                {profile?.rating ?? 1000}
+              </p>
+            )}
+
+            <div className="mt-5 grid grid-cols-3 gap-3 border-t border-line pt-4 text-center">
+              <div>
+                <p className="text-lg font-semibold text-emerald-300">
+                  {profile?.wins ?? 0}
+                </p>
+                <p className="text-xs text-muted-2">Wins</p>
+              </div>
+              <div>
+                <p className="text-lg font-semibold text-rose-300">
+                  {profile?.losses ?? 0}
+                </p>
+                <p className="text-xs text-muted-2">Losses</p>
+              </div>
+              <div>
+                <p className="text-lg font-semibold text-[#d7d0c2]">
+                  {profile?.draws ?? 0}
+                </p>
+                <p className="text-xs text-muted-2">Draws</p>
+              </div>
+            </div>
+
+            <p className="mt-4 text-xs leading-5 text-muted-2">
+              Every new debater starts at 1000. Ratings update automatically
+              after each completed debate.
+            </p>
+          </section>
+
+          <section className="border border-line bg-surface p-5">
             <h2 className="text-base font-semibold text-[#fffaf0]">
               {historyRange}-day summary
             </h2>
@@ -234,14 +342,14 @@ export default function Dashboard() {
               <StatRow
                 label="Open rooms"
                 value={stats.activeDebates}
-                valueClass="text-emerald-300"
+                valueClass="text-accent"
               />
               <StatRow
                 label="Waiting"
                 value={stats.waitingDebates}
                 valueClass="text-amber-300"
               />
-              <div className="border-t border-white/10 pt-3">
+              <div className="border-t border-line pt-3">
                 <StatRow
                   label="Finished"
                   value={stats.completedDebates}
@@ -251,11 +359,11 @@ export default function Dashboard() {
             </div>
           </section>
 
-          <section className="border border-white/10 bg-[#171a1d] p-5">
+          <section className="border border-line bg-surface p-5">
             <h2 className="text-base font-semibold text-[#fffaf0]">
               Retention
             </h2>
-            <p className="mt-4 text-sm leading-6 text-[#a9a295]">
+            <p className="mt-4 text-sm leading-6 text-muted">
               Debate rows older than 30 days are expected to be deleted from
               Supabase, so the longest dashboard view is capped at 30 days.
             </p>
@@ -268,7 +376,7 @@ export default function Dashboard() {
 
 function DebateList({ debates }: { debates: Debate[] }) {
   return (
-    <div className="divide-y divide-white/10">
+    <div className="divide-y divide-line">
       {debates.map((debate) => (
         <Link
           key={debate.id}
@@ -278,7 +386,7 @@ function DebateList({ debates }: { debates: Debate[] }) {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="font-medium text-[#fffaf0]">{debate.topic}</p>
-              <p className="mt-1 text-sm text-[#9f988c]">
+              <p className="mt-1 text-sm text-muted-2">
                 Room {debate.id} - {formatDate(debate.created_at)}
                 {debate.time_per_turn ? ` - ${debate.time_per_turn}s turns` : ""}
               </p>
@@ -293,17 +401,19 @@ function DebateList({ debates }: { debates: Debate[] }) {
 
 function StatusPill({ status }: { status: string }) {
   const style =
-    status === "finished"
+    status === "completed"
       ? "border-white/15 bg-white/8 text-[#c7c0b3]"
       : status === "active"
       ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-300"
       : "border-amber-300/25 bg-amber-300/10 text-amber-300";
 
+  const label = status === "completed" ? "finished" : status;
+
   return (
     <span
       className={`w-fit rounded border px-2 py-1 text-xs font-semibold capitalize ${style}`}
     >
-      {status}
+      {label}
     </span>
   );
 }
@@ -329,7 +439,7 @@ function StatRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-4">
-      <span className="text-[#a9a295]">{label}</span>
+      <span className="text-muted">{label}</span>
       <span className={`font-semibold ${valueClass}`}>{value}</span>
     </div>
   );

@@ -71,13 +71,11 @@ const TOPIC_PRESETS: Record<string, { topic: string; description: string }> = {
 async function generateUniqueCode(): Promise<string | null> {
   for (let attempt = 0; attempt < 10; attempt++) {
     const code = Math.floor(1000 + Math.random() * 9000).toString();
-    const { data, error } = await supabase
-      .from("debates")
-      .select("id")
-      .eq("id", code)
-      .maybeSingle();
+    const { data, error } = await supabase.rpc("check_debate_code", {
+      p_code: code,
+    });
     if (error) throw error;
-    if (!data) return code;
+    if (!data?.[0]) return code;
   }
   return null;
 }

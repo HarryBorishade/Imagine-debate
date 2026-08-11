@@ -167,21 +167,21 @@ export default function Home() {
     setJoinError("");
 
     try {
-      const { data, error } = await supabase
-        .from("debates")
-        .select("id, status")
-        .eq("id", trimmed)
-        .maybeSingle();
+      const { data, error } = await supabase.rpc("check_debate_code", {
+        p_code: trimmed,
+      });
 
       if (error) throw error;
 
-      if (!data) {
+      const match = data?.[0];
+
+      if (!match) {
         setJoinError("No debate found with that code.");
         setJoining(false);
         return;
       }
 
-      if (data.status === "completed") {
+      if (match.status === "completed") {
         setJoinError("That debate has already finished.");
         setJoining(false);
         return;

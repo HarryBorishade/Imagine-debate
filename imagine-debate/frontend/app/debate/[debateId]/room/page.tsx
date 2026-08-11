@@ -78,9 +78,44 @@ type PageState = "loading" | "error" | "debate" | "result";
 
 const GRACE_PERIOD_MAX = 15;
 const MAX_MESSAGE_WORDS = 300;
+const DRAFT_SYNC_DEBOUNCE_MS = 500;
 
 function countWords(value: string) {
   return value.trim().split(/\s+/).filter(Boolean).length;
+}
+
+// Loads the full transcript so far. Used on reconnect (page refresh, tab
+// resume on mobile, etc.) so a player never loses the debate history that
+// scrolled past before their browser dropped the socket connection. RLS
+// scopes this to debate participants only, so it's safe to call with the
+// public client.
+async function fetchMessageHistory(debateId: string): Promise<Message[]> {
+  const numericDebateId = Number(debateId);
+  if (!Number.isSafeInteger(numericDebateId)) return [];
+
+  const { data, error } = await supabase
+    .from("messages")
+    .select(
+      "id, debate_id, sender_id, sender_username, side, argument_part, stage_index, turn_index, content, created_at"
+    )
+    .eq("debate_id", numericDebateId)
+    .order("turn_index", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  if (error || !data) return [];
+
+  return data.map((row) => ({
+    id: row.id,
+    debateId: row.debate_id,
+    userId: row.sender_id,
+    username: row.sender_username,
+    side: row.side,
+    argumentPart: row.argument_part,
+    stageIndex: row.stage_index,
+    turnIndex: row.turn_index,
+    content: row.content,
+    timestamp: row.created_at,
+  }));
 }
 
 export default function DebateRoom() {
@@ -90,8 +125,10 @@ export default function DebateRoom() {
 
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const userIdRef = useRef<string | null>(null);
   const joinedRef = useRef(false);
+  const draftTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [pageState, setPageState] = useState<PageState>("loading");
   const [errorMessage, setErrorMessage] = useState("");
@@ -191,13 +228,11 @@ export default function DebateRoom() {
       socketRef.current = socket;
 
       socket.on("connect", () => {
-        console.log("✅ Room socket connected:", socket.id);
         joinedRef.current = true;
         socket.emit("join_debate", { debateId });
       });
 
       socket.on("connect_error", (err) => {
-        console.warn("❌ Room socket connection error:", err.message);
         setErrorMessage(err.message || "Could not connect to debate server.");
         setPageState("error");
       });
@@ -260,7 +295,16 @@ export default function DebateRoom() {
         setPageState("debate");
 
         if (payload.reconnect) {
-          addSystemMessage("✅ Reconnected to the debate.");
+          // We rejoined a debate already in progress (page refresh, mobile
+          // tab resume, brief network drop) — the in-memory message list is
+          // empty at this point, so reload the transcript instead of
+          // showing a half-empty room.
+          void fetchMessageHistory(debateId).then((history) => {
+            if (history.length > 0) {
+              setMessages(history);
+            }
+            addSystemMessage("✅ Reconnected to the debate.");
+          });
         }
       });
 
@@ -282,7 +326,7 @@ export default function DebateRoom() {
 
         if (!data.resumed) {
           addSystemMessage(
-            `🎤 ${data.argumentPartLabel || "Turn"} — ${
+            `${data.argumentPartLabel || "Turn"} — ${
               data.currentSide?.toUpperCase() || "PLAYER"
             }: ${data.currentTurnUsername}'s turn.`
           );
@@ -415,10 +459,6 @@ export default function DebateRoom() {
         setPageState("error");
       });
 
-      socket.on("disconnect", (reason: string) => {
-        console.warn("⚠️ Room socket disconnected:", reason);
-      });
-
       socket.io.on("reconnect_failed", () => {
         setErrorMessage("Lost connection to the debate server. Please refresh.");
         setPageState("error");
@@ -431,10 +471,30 @@ export default function DebateRoom() {
       cancelled = true;
       joinedRef.current = false;
 
+      if (draftTimeoutRef.current) clearTimeout(draftTimeoutRef.current);
+
       socketRef.current?.disconnect();
       socketRef.current = null;
     };
   }, [debateId, router, addSystemMessage]);
+
+  const isMyTurn = currentTurnUserId === myUserId;
+
+  // Debounced draft sync — lets the server auto-submit whatever is in the
+  // box if the timer runs out, instead of discarding it.
+  useEffect(() => {
+    if (!isMyTurn || debateCompleted) return;
+
+    if (draftTimeoutRef.current) clearTimeout(draftTimeoutRef.current);
+
+    draftTimeoutRef.current = setTimeout(() => {
+      socketRef.current?.emit("draft_update", { debateId, content: input });
+    }, DRAFT_SYNC_DEBOUNCE_MS);
+
+    return () => {
+      if (draftTimeoutRef.current) clearTimeout(draftTimeoutRef.current);
+    };
+  }, [input, isMyTurn, debateCompleted, debateId]);
 
   const sendMessage = useCallback(() => {
     const trimmed = input.trim();
@@ -467,7 +527,9 @@ export default function DebateRoom() {
     socketRef.current.emit("pass_turn", { debateId });
   }, [currentTurnUserId, debateId, debateCompleted]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleComposerKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Enter sends (desktop convention); Shift+Enter inserts a newline. Touch
+    // devices rely on the visible Send button, so this only ever helps.
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
@@ -498,7 +560,7 @@ export default function DebateRoom() {
 
   if (pageState === "loading") {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-900">
+      <div className="flex h-dvh items-center justify-center bg-slate-900">
         <div className="flex flex-col items-center gap-4">
           <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
           <p className="text-slate-400 text-sm">Joining debate room...</p>
@@ -509,7 +571,7 @@ export default function DebateRoom() {
 
   if (pageState === "error") {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-900 p-6">
+      <div className="flex h-dvh items-center justify-center bg-slate-900 p-6">
         <div className="text-center max-w-sm">
           <p className="text-red-400 text-lg mb-6">{errorMessage}</p>
 
@@ -528,12 +590,12 @@ export default function DebateRoom() {
     const iWon = result.winner.id === myUserId;
 
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 p-6">
-        <div className="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-12 text-center shadow-2xl">
+      <div className="flex h-dvh items-center justify-center bg-gradient-to-br from-slate-900 to-slate-800 p-6">
+        <div className="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 sm:p-12 text-center shadow-2xl">
           {iWon ? (
             <>
-              <div className="text-8xl mb-6">🏆</div>
-              <h1 className="text-4xl font-bold text-yellow-400 mb-3">
+              <div className="text-7xl sm:text-8xl mb-6">🏆</div>
+              <h1 className="text-3xl sm:text-4xl font-bold text-yellow-400 mb-3">
                 You Won!
               </h1>
 
@@ -549,8 +611,8 @@ export default function DebateRoom() {
             </>
           ) : (
             <>
-              <div className="text-8xl mb-6">😔</div>
-              <h1 className="text-4xl font-bold text-slate-300 mb-3">
+              <div className="text-7xl sm:text-8xl mb-6">😔</div>
+              <h1 className="text-3xl sm:text-4xl font-bold text-slate-300 mb-3">
                 You Lost
               </h1>
 
@@ -577,50 +639,54 @@ export default function DebateRoom() {
     );
   }
 
-  const isMyTurn = currentTurnUserId === myUserId;
-
   const turnProgress =
     secondsLeft !== null && timePerTurn
       ? Math.max(0, Math.min(100, (secondsLeft / timePerTurn) * 100))
       : 0;
   const wordCount = countWords(input);
   const isOverWordLimit = wordCount > MAX_MESSAGE_WORDS;
+  const isUrgent = secondsLeft !== null && secondsLeft <= 10 && !debateCompleted;
 
   return (
-    <div className="flex flex-col h-screen bg-gradient-to-br from-slate-900 to-slate-800">
-      <header className="flex-none bg-slate-800 border-b border-slate-700 px-6 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-white tracking-tight">
-            {debateName || `Debate #${debateId}`}
-          </h1>
+    <div className="flex h-dvh flex-col bg-gradient-to-br from-slate-900 to-slate-800">
+      <header className="flex-none bg-slate-800 border-b border-slate-700 px-4 py-3 sm:px-6 sm:py-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Room {debateId}
+            </p>
+            <h1 className="mt-0.5 text-lg font-bold leading-snug text-white tracking-tight sm:text-xl">
+              {debateName || "Loading topic…"}
+            </h1>
 
-          <p className="text-sm text-slate-400 mt-0.5">
-            {mySide ? (
-              <>
-                You are arguing{" "}
-                <span
-                  className={`font-semibold ${
-                    mySide === "for" ? "text-emerald-400" : "text-red-400"
-                  }`}
-                >
-                  {mySide === "for" ? "FOR" : "AGAINST"}
-                </span>
-              </>
-            ) : (
-              "Waiting for debate to start..."
-            )}
-          </p>
+            <p className="mt-1 text-xs text-slate-400 sm:text-sm">
+              {mySide ? (
+                <>
+                  You are arguing{" "}
+                  <span
+                    className={`font-semibold ${
+                      mySide === "for" ? "text-emerald-400" : "text-red-400"
+                    }`}
+                  >
+                    {mySide === "for" ? "FOR" : "AGAINST"}
+                  </span>
+                </>
+              ) : (
+                "Waiting for debate to start..."
+              )}
+            </p>
+          </div>
+
+          <button
+            onClick={handleLeave}
+            className="flex-none rounded-lg px-3 py-2 text-xs font-medium text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 transition-colors sm:text-sm"
+          >
+            Leave
+          </button>
         </div>
-
-        <button
-          onClick={handleLeave}
-          className="px-4 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 transition-colors"
-        >
-          Leave
-        </button>
       </header>
 
-      <div className="flex-none bg-slate-800/80 border-b border-slate-700 px-6 py-3">
+      <div className="flex-none bg-slate-800/80 border-b border-slate-700 px-4 py-2.5 sm:px-6 sm:py-3">
         <div className="max-w-3xl mx-auto">
           <div className="flex items-start justify-between gap-4 mb-2">
             <div>
@@ -668,14 +734,20 @@ export default function DebateRoom() {
               )}
             </div>
 
-            <p className="text-sm text-slate-400 tabular-nums">
+            <p
+              className={`text-sm tabular-nums ${
+                isUrgent ? "font-bold text-red-400" : "text-slate-400"
+              }`}
+            >
               {secondsLeft !== null && !debateCompleted ? `${secondsLeft}s` : "--"}
             </p>
           </div>
 
           <div className="w-full h-1.5 bg-slate-700 rounded-full overflow-hidden">
             <div
-              className="h-full bg-blue-500 rounded-full transition-all duration-1000 ease-linear"
+              className={`h-full rounded-full transition-all duration-1000 ease-linear ${
+                isUrgent ? "bg-red-500" : "bg-blue-500"
+              }`}
               style={{ width: `${debateCompleted ? 0 : turnProgress}%` }}
             />
           </div>
@@ -683,15 +755,15 @@ export default function DebateRoom() {
       </div>
 
       {gracePeriod && (
-        <div className="flex-none bg-orange-950/60 border-b border-orange-700/50 px-6 py-4">
+        <div className="flex-none bg-orange-950/60 border-b border-orange-700/50 px-4 py-3 sm:px-6 sm:py-4">
           <div className="max-w-3xl mx-auto">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-orange-300 font-semibold">
+              <p className="text-orange-300 font-semibold text-sm sm:text-base">
                 ⚠️ {gracePeriod.username} disconnected
               </p>
 
               <span
-                className={`text-2xl font-bold tabular-nums ${
+                className={`text-xl sm:text-2xl font-bold tabular-nums ${
                   gracePeriod.secondsLeft <= 5
                     ? "text-red-400"
                     : "text-orange-300"
@@ -713,7 +785,7 @@ export default function DebateRoom() {
         </div>
       )}
 
-      <main className="flex-1 overflow-y-auto px-6 py-6 space-y-3">
+      <main className="flex-1 overflow-y-auto px-4 py-4 space-y-3 sm:px-6 sm:py-6 overscroll-contain">
         {messages.length === 0 && (
           <p className="text-slate-500 text-center text-sm py-12">
             No messages yet. The player arguing FOR makes the opening argument.
@@ -738,7 +810,7 @@ export default function DebateRoom() {
               }`}
             >
               <div
-                className={`max-w-xl rounded-2xl px-5 py-3 ${
+                className={`max-w-[85%] sm:max-w-xl rounded-2xl px-4 py-2.5 sm:px-5 sm:py-3 ${
                   msg.userId === myUserId
                     ? "bg-blue-600 text-white rounded-br-sm"
                     : "bg-slate-700 text-slate-100 rounded-bl-sm"
@@ -776,7 +848,9 @@ export default function DebateRoom() {
                   </div>
                 )}
 
-                <p className="text-sm leading-relaxed">{msg.content}</p>
+                <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                  {msg.content}
+                </p>
               </div>
             </div>
           )
@@ -785,50 +859,56 @@ export default function DebateRoom() {
         <div ref={messagesEndRef} />
       </main>
 
-      <footer className="flex-none bg-slate-800 border-t border-slate-700 px-6 py-4">
+      <footer
+        className="flex-none bg-slate-800 border-t border-slate-700 px-4 py-3 sm:px-6 sm:py-4"
+        style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+      >
         <div className="max-w-3xl mx-auto">
           {turnError && (
             <p className="text-red-400 text-sm mb-2 text-center">{turnError}</p>
           )}
 
-          <div className="flex gap-3">
-            <input
-              type="text"
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-3">
+            <textarea
+              ref={composerRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
+              onKeyDown={handleComposerKeyDown}
               placeholder={
                 debateCompleted
                   ? "Debate completed."
                   : isMyTurn
-                  ? `Write your ${argumentPartLabel || "argument"}...`
+                  ? `Write your ${argumentPartLabel || "argument"}… (Enter to send, Shift+Enter for a new line)`
                   : "Wait for your turn..."
               }
               disabled={!isMyTurn || debateCompleted}
-              className={`flex-1 rounded-xl bg-slate-700 text-white px-4 py-3 text-sm placeholder-slate-500 focus:outline-none focus:ring-2 transition-shadow disabled:opacity-50 disabled:cursor-not-allowed ${
+              rows={3}
+              className={`flex-1 resize-none rounded-xl bg-slate-700 text-white px-4 py-3 text-sm leading-relaxed placeholder-slate-500 focus:outline-none focus:ring-2 transition-shadow disabled:opacity-50 disabled:cursor-not-allowed sm:rows-2 ${
                 isOverWordLimit
                   ? "focus:ring-red-500 ring-1 ring-red-500/60"
                   : "focus:ring-blue-500"
               }`}
             />
 
-            <button
-              onClick={sendMessage}
-              disabled={
-                !input.trim() || !isMyTurn || debateCompleted || isOverWordLimit
-              }
-              className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl text-sm font-semibold transition-colors"
-            >
-              Send
-            </button>
+            <div className="flex gap-2 sm:flex-col">
+              <button
+                onClick={sendMessage}
+                disabled={
+                  !input.trim() || !isMyTurn || debateCompleted || isOverWordLimit
+                }
+                className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl text-sm font-semibold transition-colors sm:flex-none"
+              >
+                Send
+              </button>
 
-            <button
-              onClick={passTurn}
-              disabled={!isMyTurn || debateCompleted}
-              className="bg-slate-700 hover:bg-slate-600 disabled:bg-slate-700/60 disabled:text-slate-500 disabled:cursor-not-allowed text-white px-5 py-3 rounded-xl text-sm font-semibold transition-colors"
-            >
-              Pass
-            </button>
+              <button
+                onClick={passTurn}
+                disabled={!isMyTurn || debateCompleted}
+                className="flex-1 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-700/60 disabled:text-slate-500 disabled:cursor-not-allowed text-white px-5 py-3 rounded-xl text-sm font-semibold transition-colors sm:flex-none"
+              >
+                Pass
+              </button>
+            </div>
           </div>
 
           <div className="mt-2 flex items-center justify-between text-xs">

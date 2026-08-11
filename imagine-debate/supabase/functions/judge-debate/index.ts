@@ -425,10 +425,11 @@ serve(async (request: Request): Promise<Response> => {
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const geminiApiKey = Deno.env.get("GEMINI_API_KEY");
 
-  if (!supabaseUrl || !serviceRoleKey || !geminiApiKey) {
+  if (!supabaseUrl || !anonKey || !serviceRoleKey || !geminiApiKey) {
     return jsonResponse(
       {
         error:
@@ -437,6 +438,33 @@ serve(async (request: Request): Promise<Response> => {
       500,
     );
   }
+
+  // This function is not JWT-gated at the platform level (verify_jwt=false)
+  // so a cron/automation path could call it in future, but the app itself
+  // always calls it from a signed-in browser session. Resolve the caller's
+  // own identity here so we can confirm they actually took part in the
+  // debate before spending Gemini quota or touching its data on their
+  // behalf — otherwise anyone could trigger paid judging runs for any valid
+  // 4-digit code.
+  const authHeader = request.headers.get("Authorization");
+
+  if (!authHeader) {
+    return jsonResponse({ error: "Missing Authorization header." }, 401);
+  }
+
+  const callerClient = createClient(supabaseUrl, anonKey, {
+    global: { headers: { Authorization: authHeader } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const { data: callerData, error: callerError } =
+    await callerClient.auth.getUser();
+
+  if (callerError || !callerData.user) {
+    return jsonResponse({ error: "Invalid or expired session." }, 401);
+  }
+
+  const callerId = callerData.user.id;
 
   const supabase = createClient(supabaseUrl, serviceRoleKey, {
     auth: {
@@ -479,7 +507,9 @@ serve(async (request: Request): Promise<Response> => {
 
     const { data: debate, error: debateError } = await supabase
       .from("debates")
-      .select("id, topic, appraisal_status, appraisal_result")
+      .select(
+        "id, topic, appraisal_status, appraisal_result, for_player_id, against_player_id, created_by",
+      )
       .eq("id", debateId)
       .maybeSingle();
 
@@ -490,6 +520,18 @@ serve(async (request: Request): Promise<Response> => {
           details: debateError?.message,
         },
         404,
+      );
+    }
+
+    const isParticipant =
+      callerId === debate.created_by ||
+      callerId === debate.for_player_id ||
+      callerId === debate.against_player_id;
+
+    if (!isParticipant) {
+      return jsonResponse(
+        { error: "You are not a participant in this debate.", debateId },
+        403,
       );
     }
 
@@ -638,11 +680,47 @@ serve(async (request: Request): Promise<Response> => {
       );
     }
 
+    // Apply the rating update. This is a best-effort side effect: the
+    // appraisal itself already succeeded and has been saved above, so a
+    // rating failure is logged, not thrown — the debater should still see
+    // their verdict even if the Elo update needs a retry.
+    let ratingApplied = false;
+    let ratingError: string | undefined;
+
+    if (debate.for_player_id && debate.against_player_id) {
+      const { error: ratingRpcError } = await supabase.rpc(
+        "apply_debate_result",
+        {
+          p_debate_id: debateId,
+          p_for_player_id: debate.for_player_id,
+          p_against_player_id: debate.against_player_id,
+          p_winning_side: finalResult.winner,
+          p_ended_reason: "ai_judged",
+        },
+      );
+
+      if (ratingRpcError) {
+        ratingError = ratingRpcError.message;
+        console.error(
+          `Failed to apply rating for debate ${debateId}:`,
+          ratingRpcError.message,
+        );
+      } else {
+        ratingApplied = true;
+      }
+    } else {
+      console.warn(
+        `Debate ${debateId} has no participant ids recorded — skipping rating update.`,
+      );
+    }
+
     return jsonResponse({
       success: true,
       cached: false,
       debateId,
       appraisal: storedResult,
+      ratingApplied,
+      ratingError,
     });
   } catch (error) {
     const message =

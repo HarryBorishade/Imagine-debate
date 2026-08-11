@@ -123,6 +123,10 @@ interface DebateRoom {
   currentStageIndex: number;
   currentSpeakerIndex: number;
   turnIndex: number;
+
+  /** Latest unsent draft per user, so a turn that times out can submit
+   *  whatever the player had typed instead of discarding it. */
+  drafts: Record<string, string>;
 }
 
 const rooms: Record<string, DebateRoom> = {};
@@ -226,9 +230,37 @@ function getRoom(debateId: string): DebateRoom {
     currentStageIndex: 0,
     currentSpeakerIndex: 0,
     turnIndex: 0,
+    drafts: {},
   };
 
   return rooms[debateId];
+}
+
+/** Applies an Elo-style rating update via the database RPC. The RPC is the
+ *  only writer of profiles.rating/wins/losses/draws and is idempotent per
+ *  debate, so it's safe to call from every code path that can end a debate
+ *  (forfeit-disconnect, forfeit-leave) without risking a double-count. */
+async function applyDebateResult(
+  debateId: string,
+  forPlayerId: string,
+  againstPlayerId: string,
+  winningSide: Side | "draw",
+  endedReason: "ai_judged" | "forfeit_disconnect" | "forfeit_left"
+): Promise<void> {
+  const { error } = await supabase.rpc("apply_debate_result", {
+    p_debate_id: debateId,
+    p_for_player_id: forPlayerId,
+    p_against_player_id: againstPlayerId,
+    p_winning_side: winningSide,
+    p_ended_reason: endedReason,
+  });
+
+  if (error) {
+    console.error(
+      `❌ Failed to apply rating update for debate ${debateId}:`,
+      error.message
+    );
+  }
 }
 
 function getCurrentStage(room: DebateRoom): DebateStage | null {
@@ -243,6 +275,62 @@ function getCurrentSide(room: DebateRoom): Side | null {
 
 function countWords(value: string) {
   return value.trim().split(/\s+/).filter(Boolean).length;
+}
+
+/** Persists one debate message and broadcasts it to the room. Shared by the
+ *  explicit "send_message" handler and the turn-timeout auto-submit path, so
+ *  a message sent because time ran out looks identical to one sent by hand.
+ *  Returns whether the save succeeded. */
+async function persistAndBroadcastMessage(
+  debateId: string,
+  room: DebateRoom,
+  userId: string,
+  content: string
+): Promise<boolean> {
+  const currentStage = getCurrentStage(room);
+
+  if (!currentStage) return false;
+
+  const side = room.sides[userId] ?? null;
+  const messageDebateId = getMessageDebateId(debateId);
+
+  if (messageDebateId === null) return false;
+
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({
+      debate_id: messageDebateId,
+      sender_id: userId,
+      sender_username: room.playerNames[userId] ?? "Player",
+      side,
+      argument_part: currentStage.argumentPart,
+      stage_index: room.currentStageIndex,
+      turn_index: room.turnIndex,
+      content,
+    })
+    .select()
+    .single();
+
+  if (error || !data) {
+    console.error("❌ Failed to save message:", error?.message);
+    return false;
+  }
+
+  io.to(roomKey(debateId)).emit("new_message", {
+    id: data.id,
+    debateId: data.debate_id,
+    userId: data.sender_id,
+    username: data.sender_username,
+    side: data.side,
+    argumentPart: data.argument_part,
+    argumentPartLabel: currentStage.label,
+    stageIndex: data.stage_index,
+    turnIndex: data.turn_index,
+    content: data.content,
+    timestamp: data.created_at,
+  });
+
+  return true;
 }
 
 function buildTurnPayload(debateId: string, room: DebateRoom) {
@@ -474,18 +562,43 @@ function tickTurnTimer(debateId: string) {
       clearTurnTimer(debateId);
 
       const currentStage = getCurrentStage(room);
+      const timedOutUserId = room.currentTurn;
 
       io.to(roomKey(debateId)).emit("turn_timeout", {
         debateId,
-        userId: room.currentTurn,
-        username: room.currentTurn
-          ? room.playerNames[room.currentTurn]
+        userId: timedOutUserId,
+        username: timedOutUserId
+          ? room.playerNames[timedOutUserId]
           : undefined,
         argumentPart: currentStage?.argumentPart ?? null,
         argumentPartLabel: currentStage?.label ?? null,
         stageIndex: room.currentStageIndex,
         turnIndex: room.turnIndex,
       });
+
+      // If the player had typed something, send it for them instead of
+      // discarding it — only a truly empty box costs them the turn outright.
+      const draft = timedOutUserId ? room.drafts[timedOutUserId]?.trim() : "";
+
+      if (timedOutUserId && draft) {
+        const words = draft.split(/\s+/).filter(Boolean);
+        const clamped =
+          words.length > MAX_MESSAGE_WORDS
+            ? words.slice(0, MAX_MESSAGE_WORDS).join(" ")
+            : draft;
+
+        void persistAndBroadcastMessage(
+          debateId,
+          room,
+          timedOutUserId,
+          clamped
+        ).then(() => {
+          // advanceTurn clears the draft either way, so a failed save never
+          // leaves the player stuck mid-turn.
+          advanceTurn(debateId);
+        });
+        return;
+      }
 
       advanceTurn(debateId);
       return;
@@ -525,6 +638,13 @@ function advanceTurn(debateId: string) {
   if (!room || !room.turnOrder) return;
 
   clearTurnTimer(debateId);
+
+  // Whatever the outgoing speaker had typed is now resolved (sent, timed out
+  // and auto-submitted, or passed) — don't let a stale draft leak into their
+  // next turn.
+  if (room.currentTurn) {
+    delete room.drafts[room.currentTurn];
+  }
 
   room.turnIndex += 1;
 
@@ -627,6 +747,31 @@ function startGracePeriod(debateId: string, disconnectedUserId: string) {
             username: disconnectedUsername,
           },
         });
+
+        if (room.turnOrder) {
+          const winnerSide = room.sides[winner.id];
+
+          if (winnerSide) {
+            void applyDebateResult(
+              debateId,
+              room.turnOrder[0],
+              room.turnOrder[1],
+              winnerSide,
+              "forfeit_disconnect"
+            );
+          }
+        }
+      } else if (room.turnOrder) {
+        // Both players are gone — there's no one left to declare a winner
+        // over. Close the debate out as a draw so it doesn't linger on both
+        // dashboards as "active" forever with no resolution.
+        void applyDebateResult(
+          debateId,
+          room.turnOrder[0],
+          room.turnOrder[1],
+          "draw",
+          "forfeit_disconnect"
+        );
       }
 
       delete rooms[debateId];
@@ -704,6 +849,20 @@ function handleUserLeft(
           username,
         },
       });
+
+      if (room.turnOrder) {
+        const winnerSide = room.sides[winner.id];
+
+        if (winnerSide) {
+          void applyDebateResult(
+            debateId,
+            room.turnOrder[0],
+            room.turnOrder[1],
+            winnerSide,
+            "forfeit_left"
+          );
+        }
+      }
     }
 
     clearAllPendingDisconnectsForDebate(debateId);
@@ -722,6 +881,24 @@ function handleUserLeft(
     clearAllPendingDisconnectsForDebate(debateId);
 
     delete rooms[debateId];
+
+    // The debate never went active, so there's nothing worth keeping —
+    // delete it instead of leaving an orphaned "waiting" row on the
+    // dashboard forever. Scoped to status='waiting' so this can never touch
+    // a debate that started or finished, even under a race.
+    void supabase
+      .from("debates")
+      .delete()
+      .eq("id", debateId)
+      .eq("status", "waiting")
+      .then(({ error }: { error: { message: string } | null }) => {
+        if (error) {
+          console.error(
+            `❌ Failed to delete abandoned debate ${debateId}:`,
+            error.message
+          );
+        }
+      });
 
     console.log(`🗑 Room ${debateId} cleaned up because it is empty`);
     return;
@@ -947,6 +1124,31 @@ io.on("connection", (socket: Socket) => {
       room.currentStageIndex = 0;
       room.currentSpeakerIndex = 0;
       room.turnIndex = 0;
+      room.drafts = {};
+
+      const startTimeIso = new Date().toISOString();
+
+      // Persist in parallel — the in-memory state above is authoritative for
+      // the running debate, so don't add a database round-trip to the
+      // player-facing start latency. A missed write here only affects
+      // dashboard/RLS visibility, never gameplay, so it's logged, not fatal.
+      void supabase
+        .from("debates")
+        .update({
+          status: "active",
+          for_player_id: forPlayer.id,
+          against_player_id: againstPlayer.id,
+          started_at: startTimeIso,
+        })
+        .eq("id", debateId)
+        .then(({ error }: { error: { message: string } | null }) => {
+          if (error) {
+            console.error(
+              `❌ Failed to mark debate ${debateId} active in Supabase:`,
+              error.message
+            );
+          }
+        });
 
       const payload = players.map((player) => ({
         ...player,
@@ -959,7 +1161,7 @@ io.on("connection", (socket: Socket) => {
         timePerTurn: room.timePerTurn,
         players: payload,
         stages: DEBATE_STAGES,
-        startTime: new Date().toISOString(),
+        startTime: startTimeIso,
         reconnect: false,
       });
 
@@ -1001,15 +1203,6 @@ io.on("connection", (socket: Socket) => {
           return;
         }
 
-        const currentStage = getCurrentStage(room);
-
-        if (!currentStage) {
-          socket.emit("message_error", {
-            message: "This debate has already finished.",
-          });
-          return;
-        }
-
         const cleanContent = content.trim();
 
         if (countWords(cleanContent) > MAX_MESSAGE_WORDS) {
@@ -1019,53 +1212,19 @@ io.on("connection", (socket: Socket) => {
           return;
         }
 
-        const side = room.sides[user.id] ?? null;
-        const messageDebateId = getMessageDebateId(debateId);
+        const saved = await persistAndBroadcastMessage(
+          debateId,
+          room,
+          user.id,
+          cleanContent
+        );
 
-        if (messageDebateId === null) {
-          socket.emit("message_error", {
-            message: "This debate has an invalid message reference ID.",
-          });
-          return;
-        }
-
-        const { data, error } = await supabase
-          .from("messages")
-          .insert({
-            debate_id: messageDebateId,
-            sender_id: user.id,
-            sender_username: user.username,
-            side,
-            argument_part: currentStage.argumentPart,
-            stage_index: room.currentStageIndex,
-            turn_index: room.turnIndex,
-            content: cleanContent,
-          })
-          .select()
-          .single();
-
-        if (error) {
-          console.error("❌ Failed to save message:", error.message);
-
+        if (!saved) {
           socket.emit("message_error", {
             message: "Your message could not be saved. Please try again.",
           });
           return;
         }
-
-        io.to(roomKey(debateId)).emit("new_message", {
-          id: data.id,
-          debateId: data.debate_id,
-          userId: data.sender_id,
-          username: data.sender_username,
-          side: data.side,
-          argumentPart: data.argument_part,
-          argumentPartLabel: currentStage.label,
-          stageIndex: data.stage_index,
-          turnIndex: data.turn_index,
-          content: data.content,
-          timestamp: data.created_at,
-        });
 
         advanceTurn(debateId);
       } catch (err) {
@@ -1075,6 +1234,26 @@ io.on("connection", (socket: Socket) => {
           message: "Something went wrong while sending your message.",
         });
       }
+    }
+  );
+
+  // Lightweight, debounced-on-the-client draft sync — lets the timeout path
+  // submit whatever the current speaker had typed instead of discarding it.
+  // Silently ignored outside that player's own active turn.
+  socket.on(
+    "draft_update",
+    ({ debateId, content }: { debateId: string; content: string }) => {
+      if (!debateId || typeof content !== "string") return;
+
+      const room = rooms[debateId];
+
+      if (!room || room.status !== "active" || room.currentTurn !== user.id) {
+        return;
+      }
+
+      // Defensive cap — the client already limits by word count, but never
+      // trust that without a server-side backstop.
+      room.drafts[user.id] = content.slice(0, 4000);
     }
   );
 
