@@ -159,26 +159,26 @@ function CreateDebateContent() {
   const isPreset = !!searchParams.get("topic");
 
   return (
-    <div className="min-h-screen bg-[#0d1117] text-white">
+    <div className="min-h-screen bg-ink text-cream">
 
       {/* Nav */}
-      <nav className="sticky top-0 z-40 bg-[#0d1117]/80 backdrop-blur-md border-b border-white/[0.06]">
+      <nav className="sticky top-0 z-40 bg-ink/95 backdrop-blur border-b border-line">
         <div className="max-w-2xl mx-auto px-6 h-16 flex items-center gap-3">
           <Link
             href="/"
-            className="text-white/40 hover:text-white/70 transition-colors text-sm"
+            className="text-muted-2 hover:text-cream transition-colors text-sm"
           >
             ← Home
           </Link>
-          <span className="text-white/20">/</span>
+          <span className="text-muted-2/40">/</span>
           <Link
             href="/dashboard"
-            className="text-white/40 hover:text-white/70 transition-colors text-sm"
+            className="text-muted-2 hover:text-cream transition-colors text-sm"
           >
             Dashboard
           </Link>
-          <span className="text-white/20">/</span>
-          <span className="text-white/60 text-sm">New debate</span>
+          <span className="text-muted-2/40">/</span>
+          <span className="text-muted text-sm">New debate</span>
         </div>
       </nav>
 
@@ -194,10 +194,13 @@ function CreateDebateContent() {
 
         {/* Header */}
         <div className="mb-10">
-          <h1 className="text-3xl font-bold tracking-tight mb-2">
+          <p className="eyebrow mb-4">
+            {isPreset ? "No. 02 — Custom motion" : "No. 02 — New room"}
+          </p>
+          <h1 className="font-serif text-3xl tracking-tight text-[#fffaf0] mb-2">
             {isPreset ? "Start this debate" : "Create a debate"}
           </h1>
-          <p className="text-white/40 text-sm leading-relaxed">
+          <p className="text-muted text-sm leading-relaxed">
             {isPreset
               ? "We've pre-filled the topic from your selection. Adjust anything you like, then create your room."
               : "Set the topic, format, and turn timer. You'll get a 4-digit code to share with your opponent."}
@@ -207,14 +210,14 @@ function CreateDebateContent() {
         <form onSubmit={handleSubmit} className="space-y-6">
 
           {error && (
-            <div className="px-4 py-3 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-300 text-sm">
+            <div className="px-4 py-3 border border-against/25 bg-against/10 text-rose-300 text-sm">
               {error}
             </div>
           )}
 
           {/* Topic */}
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-white/70">
+            <label className="block text-sm font-medium text-[#c7c0b3]">
               Debate topic <span className="text-rose-400">*</span>
             </label>
             <input
@@ -225,18 +228,18 @@ function CreateDebateContent() {
               }
               placeholder="e.g. AI should regulate financial markets"
               required
-              className="w-full rounded-xl bg-white/[0.05] border border-white/[0.08] text-white px-4 py-3 text-sm placeholder-white/20 focus:outline-none focus:border-indigo-500 focus:bg-white/[0.07] transition-all"
+              className="w-full border border-line bg-black/20 text-cream px-4 py-3 text-sm placeholder:text-muted-2/50 focus:outline-none focus:border-accent transition-colors"
             />
-            <p className="text-xs text-white/25">
+            <p className="text-xs text-muted-2">
               State the proposition clearly — debaters will argue for or against it.
             </p>
           </div>
 
           {/* Description */}
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-white/70">
+            <label className="block text-sm font-medium text-[#c7c0b3]">
               Description{" "}
-              <span className="text-white/30 font-normal">optional</span>
+              <span className="text-muted-2 font-normal">optional</span>
             </label>
             <textarea
               value={formData.description}
@@ -245,13 +248,13 @@ function CreateDebateContent() {
               }
               placeholder="Add context or scope to help both sides understand the debate…"
               rows={3}
-              className="w-full rounded-xl bg-white/[0.05] border border-white/[0.08] text-white px-4 py-3 text-sm placeholder-white/20 focus:outline-none focus:border-indigo-500 focus:bg-white/[0.07] transition-all resize-none"
+              className="w-full border border-line bg-black/20 text-cream px-4 py-3 text-sm placeholder:text-muted-2/50 focus:outline-none focus:border-accent transition-colors resize-none"
             />
           </div>
 
           {/* Format */}
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-white/70">
+            <label className="block text-sm font-medium text-[#c7c0b3]">
               Format <span className="text-rose-400">*</span>
             </label>
             <div className="grid grid-cols-2 gap-3">
@@ -267,14 +270,14 @@ function CreateDebateContent() {
                         debateFormat: format.id,
                       }))
                     }
-                    className={`text-left px-4 py-4 rounded-xl border transition-all ${
+                    className={`text-left px-4 py-4 border transition-colors ${
                       selected
-                        ? "bg-indigo-600/15 border-indigo-500/40 text-white"
-                        : "bg-white/[0.03] border-white/[0.07] text-white/50 hover:border-white/[0.15] hover:text-white/70"
+                        ? "bg-accent/10 border-accent/50 text-cream"
+                        : "bg-surface border-line text-muted hover:border-line-strong hover:text-[#d7d0c2]"
                     }`}
                   >
                     <p className="text-sm font-medium mb-0.5">{format.name}</p>
-                    <p className="text-xs opacity-60 leading-relaxed">
+                    <p className="text-xs opacity-70 leading-relaxed">
                       {format.description}
                     </p>
                   </button>
@@ -285,7 +288,7 @@ function CreateDebateContent() {
 
           {/* Time per turn */}
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-white/70">
+            <label className="block text-sm font-medium text-[#c7c0b3]">
               Time per turn <span className="text-rose-400">*</span>
             </label>
             <div className="grid grid-cols-5 gap-2">
@@ -298,14 +301,14 @@ function CreateDebateContent() {
                     onClick={() =>
                       setFormData((p) => ({ ...p, timePerTurn: value }))
                     }
-                    className={`text-center px-2 py-3 rounded-xl border transition-all ${
+                    className={`text-center px-2 py-3 border transition-colors ${
                       selected
-                        ? "bg-indigo-600/15 border-indigo-500/40 text-white"
-                        : "bg-white/[0.03] border-white/[0.07] text-white/40 hover:border-white/[0.15] hover:text-white/60"
+                        ? "bg-accent/10 border-accent/50 text-cream"
+                        : "bg-surface border-line text-muted-2 hover:border-line-strong hover:text-muted"
                     }`}
                   >
                     <p className="text-sm font-semibold leading-tight">{label}</p>
-                    <p className="text-[10px] mt-0.5 opacity-60">{sublabel}</p>
+                    <p className="text-[10px] mt-0.5 opacity-70">{sublabel}</p>
                   </button>
                 );
               })}
@@ -313,21 +316,21 @@ function CreateDebateContent() {
           </div>
 
           {/* Divider */}
-          <div className="border-t border-white/[0.06] pt-6 flex gap-3">
+          <div className="border-t border-line pt-6 flex gap-3">
             <Link
               href="/dashboard"
-              className="flex-1 text-center px-5 py-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.08] border border-white/[0.08] text-white/60 hover:text-white text-sm font-medium transition-all"
+              className="flex-1 text-center px-5 py-3 bg-surface hover:bg-surface-2 border border-line text-muted hover:text-cream text-sm font-medium transition-colors"
             >
               Cancel
             </Link>
             <button
               type="submit"
               disabled={!formData.topic.trim() || loading}
-              className="flex-1 px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:bg-white/[0.06] disabled:text-white/20 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all"
+              className="flex-1 px-5 py-3 bg-accent hover:bg-accent-strong disabled:bg-white/10 disabled:text-white/30 disabled:cursor-not-allowed text-[#0d1117] text-sm font-semibold transition-colors"
             >
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
-                  <span className="w-3.5 h-3.5 border border-white/30 border-t-white/80 rounded-full animate-spin" />
+                  <span className="w-3.5 h-3.5 border border-black/20 border-t-black/60 rounded-full animate-spin" />
                   Creating…
                 </span>
               ) : (
@@ -338,10 +341,10 @@ function CreateDebateContent() {
         </form>
 
         {/* Info box */}
-        <div className="mt-8 px-5 py-4 rounded-xl border border-white/[0.06] bg-white/[0.02]">
-          <p className="text-xs text-white/30 leading-relaxed">
-            Once created, you'll land in a lobby with your{" "}
-            <span className="text-white/50 font-mono">4-digit code</span>. Share
+        <div className="mt-8 px-5 py-4 border border-line bg-surface">
+          <p className="text-xs text-muted-2 leading-relaxed">
+            Once created, you&apos;ll land in a lobby with your{" "}
+            <span className="text-muted font-mono">4-digit code</span>. Share
             it with your opponent — they enter it on the join screen to enter the
             same room. The debate starts when both players are ready.
           </p>

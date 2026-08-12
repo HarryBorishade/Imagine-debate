@@ -68,10 +68,8 @@ export default function FaqPage() {
             items={[{ label: "Home", href: "/" }, { label: "FAQ" }]}
           />
 
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-accent/80">
-            Questions & answers
-          </p>
-          <h1 className="mt-4 text-4xl font-semibold tracking-tight text-[#fffaf0] sm:text-5xl">
+          <p className="eyebrow">Questions & answers</p>
+          <h1 className="mt-4 font-serif text-4xl tracking-tight text-[#fffaf0] sm:text-5xl">
             How Imagine Debate works
           </h1>
           <p className="mt-5 max-w-2xl text-lg leading-8 text-muted">
@@ -83,11 +81,18 @@ export default function FaqPage() {
             .
           </p>
 
-          <div className="mt-10 divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">
-            {FAQ_ITEMS.map((item) => (
+          <div className="mt-10 divide-y divide-line border border-line bg-surface">
+            {FAQ_ITEMS.map((item, index) => (
               <details key={item.q} className="group px-5">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 py-5 text-left font-semibold text-[#fffaf0] [&::-webkit-details-marker]:hidden">
-                  {item.q}
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 py-5 text-left [&::-webkit-details-marker]:hidden">
+                  <span className="flex items-baseline gap-3">
+                    <span className="dossier-index">
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                    <span className="font-serif text-lg text-[#fffaf0]">
+                      {item.q}
+                    </span>
+                  </span>
                   <span
                     aria-hidden="true"
                     className="shrink-0 text-muted-2 transition-transform duration-200 group-open:rotate-45"
@@ -102,13 +107,13 @@ export default function FaqPage() {
                     </svg>
                   </span>
                 </summary>
-                <p className="pb-5 text-sm leading-7 text-muted">{item.a}</p>
+                <p className="pb-5 pl-8 text-sm leading-7 text-muted">{item.a}</p>
               </details>
             ))}
           </div>
 
-          <div className="mt-8 rounded-xl border border-accent/20 bg-accent/[0.06] p-6">
-            <h2 className="text-base font-semibold text-[#fffaf0]">
+          <div className="mt-8 border-t-2 border-accent bg-accent/[0.06] p-6">
+            <h2 className="font-serif text-lg text-[#fffaf0]">
               Need a hand?
             </h2>
             <p className="mt-2 text-sm leading-7 text-muted">
@@ -117,7 +122,7 @@ export default function FaqPage() {
             </p>
             <Link
               href="/contact"
-              className="mt-4 inline-flex rounded-md bg-accent px-4 py-2 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong"
+              className="mt-4 inline-flex bg-accent px-4 py-2 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong"
             >
               Contact us
             </Link>

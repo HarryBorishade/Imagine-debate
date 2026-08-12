@@ -49,11 +49,9 @@ export default function CookiesPage() {
         <section className="mx-auto max-w-4xl px-5 py-12">
           <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: "Cookies" }]} />
 
-          <p className="mb-4 text-xs font-semibold uppercase tracking-[0.28em] text-accent/80">
-            Privacy basics
-          </p>
+          <p className="eyebrow mb-4">Privacy basics</p>
 
-          <h1 className="text-4xl font-semibold tracking-tight text-[#fffaf0]">
+          <h1 className="font-serif text-4xl tracking-tight text-[#fffaf0]">
             Cookies and browser storage
           </h1>
 
@@ -98,8 +96,8 @@ export default function CookiesPage() {
             ))}
           </div>
 
-          <div className="mt-8 border border-line bg-[#141719] p-5">
-            <h2 className="text-base font-semibold text-[#fffaf0]">
+          <div className="mt-8 border-t-2 border-accent bg-[#141719] p-5">
+            <h2 className="font-serif text-lg text-[#fffaf0]">
               Your choices
             </h2>
 

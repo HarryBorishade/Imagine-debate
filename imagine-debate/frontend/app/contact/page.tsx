@@ -24,10 +24,8 @@ export default function ContactPage() {
 
           <div className="grid gap-10 lg:grid-cols-[1fr_460px] lg:gap-16">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-accent/80">
-                Talk to us
-              </p>
-              <h1 className="mt-4 text-4xl font-semibold tracking-tight text-[#fffaf0] sm:text-5xl">
+              <p className="eyebrow">Talk to us</p>
+              <h1 className="mt-4 font-serif text-4xl tracking-tight text-[#fffaf0] sm:text-5xl">
                 Get in touch
               </h1>
               <p className="mt-5 max-w-xl text-lg leading-8 text-muted">
@@ -36,7 +34,7 @@ export default function ContactPage() {
               </p>
 
               <div className="mt-8 space-y-4">
-                <div className="rounded-xl border border-accent/20 bg-accent/[0.06] p-5">
+                <div className="border-t-2 border-accent bg-accent/[0.06] p-5">
                   <h2 className="text-sm font-semibold text-[#fffaf0]">
                     Our response-time promise
                   </h2>
@@ -46,7 +44,7 @@ export default function ContactPage() {
                   </p>
                 </div>
 
-                <div className="rounded-xl border border-line bg-surface p-5">
+                <div className="border border-line bg-surface p-5">
                   <h2 className="text-sm font-semibold text-[#fffaf0]">
                     Prefer email?
                   </h2>
@@ -64,8 +62,8 @@ export default function ContactPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-line bg-surface p-6 sm:p-8">
-              <h2 className="text-lg font-semibold text-[#fffaf0]">
+            <div className="border-t-2 border-accent bg-surface p-6 sm:p-8">
+              <h2 className="font-serif text-lg text-[#fffaf0]">
                 Send an enquiry
               </h2>
               <p className="mt-1 text-sm text-muted-2">

@@ -177,10 +177,10 @@ export default function Dashboard() {
       <header className="border-b border-line bg-ink/90">
         <div className="mx-auto flex max-w-6xl flex-col gap-5 px-5 py-6 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <Link href="/" className="text-sm font-semibold text-accent/80">
+            <Link href="/" className="eyebrow">
               Imagine Debate
             </Link>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-[#fffaf0]">
+            <h1 className="mt-3 font-serif text-3xl tracking-tight text-[#fffaf0]">
               Dashboard
             </h1>
             <p className="mt-1 text-sm text-muted">
@@ -191,19 +191,19 @@ export default function Dashboard() {
           <div className="flex flex-wrap gap-2">
             <Link
               href="/"
-              className="rounded-md border border-line px-4 py-2 text-sm font-semibold text-[#d7d0c2] transition-colors hover:bg-white/8"
+              className="border border-line px-4 py-2 text-sm font-semibold text-[#d7d0c2] transition-colors hover:bg-white/8"
             >
               Home
             </Link>
             <Link
               href="/settings"
-              className="rounded-md border border-line px-4 py-2 text-sm font-semibold text-[#d7d0c2] transition-colors hover:bg-white/8"
+              className="border border-line px-4 py-2 text-sm font-semibold text-[#d7d0c2] transition-colors hover:bg-white/8"
             >
               Settings
             </Link>
             <Link
               href="/debate/create"
-              className="rounded-md bg-cream px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-white"
+              className="bg-cream px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-white"
             >
               New debate
             </Link>
@@ -215,10 +215,10 @@ export default function Dashboard() {
         <div className="space-y-6">
           <section className="border border-line bg-surface">
             <div className="flex items-center justify-between border-b border-line px-5 py-4">
-              <h2 className="text-base font-semibold text-[#fffaf0]">
+              <h2 className="font-serif text-lg text-[#fffaf0]">
                 Active debates
               </h2>
-              <span className="text-xs text-muted-2">
+              <span className="dossier-index">
                 {activeDebates.length} open
               </span>
             </div>
@@ -233,7 +233,7 @@ export default function Dashboard() {
                 </p>
                 <Link
                   href="/debate/create"
-                  className="mt-5 inline-flex rounded-md bg-accent px-4 py-2 text-sm font-semibold text-[#111411] hover:bg-accent-strong"
+                  className="mt-5 inline-flex bg-accent px-4 py-2 text-sm font-semibold text-[#111411] hover:bg-accent-strong"
                 >
                   Start a debate
                 </Link>
@@ -246,7 +246,7 @@ export default function Dashboard() {
           <section className="border border-line bg-surface">
             <div className="flex flex-col gap-4 border-b border-line px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-base font-semibold text-[#fffaf0]">
+                <h2 className="font-serif text-lg text-[#fffaf0]">
                   Previous debates
                 </h2>
                 <p className="mt-1 text-sm text-muted-2">
@@ -254,7 +254,7 @@ export default function Dashboard() {
                 </p>
               </div>
 
-              <div className="inline-flex w-fit overflow-hidden rounded-md border border-line bg-black/10">
+              <div className="inline-flex w-fit border border-line bg-black/10">
                 {[7, 30].map((range) => (
                   <button
                     key={range}
@@ -286,11 +286,9 @@ export default function Dashboard() {
         </div>
 
         <aside className="space-y-6">
-          <section className="border border-line bg-surface p-5">
+          <section className="border-t-2 border-accent bg-surface p-5">
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold text-[#fffaf0]">
-                Rating
-              </h2>
+              <h2 className="eyebrow">Rating</h2>
               {winRate !== null && (
                 <span className="text-xs font-semibold text-accent">
                   {winRate}% win rate
@@ -299,9 +297,9 @@ export default function Dashboard() {
             </div>
 
             {profileLoading ? (
-              <div className="mt-4 h-10 w-24 animate-pulse rounded bg-white/5" />
+              <div className="mt-4 h-10 w-24 animate-pulse bg-white/5" />
             ) : (
-              <p className="mt-2 text-4xl font-semibold tracking-tight text-[#fffaf0]">
+              <p className="mt-2 font-serif text-5xl tracking-tight text-[#fffaf0]">
                 {profile?.rating ?? 1000}
               </p>
             )}
@@ -334,9 +332,7 @@ export default function Dashboard() {
           </section>
 
           <section className="border border-line bg-surface p-5">
-            <h2 className="text-base font-semibold text-[#fffaf0]">
-              {historyRange}-day summary
-            </h2>
+            <h2 className="eyebrow">{historyRange}-day summary</h2>
             <div className="mt-5 space-y-3 text-sm">
               <StatRow label="Total debates" value={stats.totalDebates} />
               <StatRow
@@ -360,9 +356,7 @@ export default function Dashboard() {
           </section>
 
           <section className="border border-line bg-surface p-5">
-            <h2 className="text-base font-semibold text-[#fffaf0]">
-              Retention
-            </h2>
+            <h2 className="eyebrow">Retention</h2>
             <p className="mt-4 text-sm leading-6 text-muted">
               Debate rows older than 30 days are expected to be deleted from
               Supabase, so the longest dashboard view is capped at 30 days.
@@ -402,16 +396,16 @@ function DebateList({ debates }: { debates: Debate[] }) {
 function StatusPill({ status }: { status: string }) {
   const style =
     status === "completed"
-      ? "border-white/15 bg-white/8 text-[#c7c0b3]"
+      ? "text-[#c7c0b3]"
       : status === "active"
-      ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-300"
-      : "border-amber-300/25 bg-amber-300/10 text-amber-300";
+      ? "text-emerald-300"
+      : "text-amber-300";
 
   const label = status === "completed" ? "finished" : status;
 
   return (
     <span
-      className={`w-fit rounded border px-2 py-1 text-xs font-semibold capitalize ${style}`}
+      className={`w-fit border-l-2 border-current pl-2 font-mono text-xs font-semibold uppercase tracking-wide ${style}`}
     >
       {label}
     </span>

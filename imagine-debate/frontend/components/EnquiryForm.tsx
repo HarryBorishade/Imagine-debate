@@ -75,7 +75,7 @@ export function EnquiryForm() {
       {error && (
         <div
           role="alert"
-          className="rounded-lg border border-against/30 bg-against/10 px-4 py-3 text-sm text-rose-200"
+          className="border border-against/30 bg-against/10 px-4 py-3 text-sm text-rose-200"
         >
           {error}
         </div>
@@ -93,7 +93,7 @@ export function EnquiryForm() {
           maxLength={MAX_NAME}
           autoComplete="name"
           required
-          className="w-full rounded-lg border border-line bg-black/20 px-4 py-3 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none"
+          className="w-full border border-line bg-black/20 px-4 py-3 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none"
           placeholder="Jordan Bell"
         />
       </div>
@@ -110,7 +110,7 @@ export function EnquiryForm() {
           maxLength={MAX_EMAIL}
           autoComplete="email"
           required
-          className="w-full rounded-lg border border-line bg-black/20 px-4 py-3 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none"
+          className="w-full border border-line bg-black/20 px-4 py-3 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none"
           placeholder="you@example.com"
         />
         {email.length > 0 && !isValidEmail && (
@@ -129,7 +129,7 @@ export function EnquiryForm() {
           maxLength={MAX_MESSAGE}
           rows={6}
           required
-          className="w-full resize-y rounded-lg border border-line bg-black/20 px-4 py-3 text-sm leading-6 text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none"
+          className="w-full resize-y border border-line bg-black/20 px-4 py-3 text-sm leading-6 text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none"
           placeholder="Tell us what's on your mind — a bug, a question, or feedback."
         />
         <div className="mt-1.5 flex justify-between text-xs text-muted-2">
@@ -156,7 +156,7 @@ export function EnquiryForm() {
       <button
         type="submit"
         disabled={!canSubmit}
-        className="w-full rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
+        className="w-full bg-accent px-5 py-3 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
       >
         {submitting ? "Sending…" : "Send enquiry"}
       </button>

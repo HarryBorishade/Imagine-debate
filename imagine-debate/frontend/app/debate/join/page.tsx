@@ -70,19 +70,19 @@ function JoinDebateContent() {
   const digits = code.split("");
 
   return (
-    <div className="min-h-screen bg-[#0d1117] text-white flex flex-col">
+    <div className="min-h-screen bg-ink text-cream flex flex-col">
 
       {/* Nav */}
-      <nav className="sticky top-0 z-40 bg-[#0d1117]/80 backdrop-blur-md border-b border-white/[0.06]">
+      <nav className="sticky top-0 z-40 bg-ink/95 backdrop-blur border-b border-line">
         <div className="max-w-md mx-auto px-6 h-16 flex items-center gap-3">
           <Link
             href="/"
-            className="text-white/40 hover:text-white/70 transition-colors text-sm"
+            className="text-muted-2 hover:text-cream transition-colors text-sm"
           >
             ← Home
           </Link>
-          <span className="text-white/20">/</span>
-          <span className="text-white/60 text-sm">Join debate</span>
+          <span className="text-muted-2/40">/</span>
+          <span className="text-muted text-sm">Join debate</span>
         </div>
       </nav>
 
@@ -92,10 +92,11 @@ function JoinDebateContent() {
 
           {/* Header */}
           <div className="mb-10 text-center">
-            <h1 className="text-3xl font-bold tracking-tight mb-2">
+            <p className="eyebrow mb-4 justify-center">Room code</p>
+            <h1 className="font-serif text-3xl tracking-tight mb-2">
               Enter your code
             </h1>
-            <p className="text-white/40 text-sm leading-relaxed">
+            <p className="text-muted text-sm leading-relaxed">
               Ask your opponent for their 4-digit room code.
             </p>
           </div>
@@ -108,16 +109,16 @@ function JoinDebateContent() {
                 {[0, 1, 2, 3].map((i) => (
                   <div
                     key={i}
-                    className={`h-16 rounded-xl border flex items-center justify-center text-2xl font-bold font-mono transition-all ${
+                    className={`h-16 border flex items-center justify-center text-2xl font-semibold font-mono transition-colors ${
                       i === digits.length
-                        ? "border-indigo-500 bg-indigo-600/10"
+                        ? "border-accent bg-accent/10 text-cream"
                         : digits[i]
-                        ? "border-white/[0.15] bg-white/[0.06] text-white"
-                        : "border-white/[0.07] bg-white/[0.02] text-white/20"
+                        ? "border-line-strong bg-surface-2 text-cream"
+                        : "border-line bg-surface text-muted-2/50"
                     }`}
                   >
                     {digits[i] ?? (i === digits.length ? (
-                      <span className="w-0.5 h-6 bg-indigo-400 animate-pulse rounded-full" />
+                      <span className="w-0.5 h-6 bg-accent animate-pulse" />
                     ) : "·")}
                   </div>
                 ))}
@@ -151,7 +152,7 @@ function JoinDebateContent() {
           </div>
 
           {/* Tap to focus hint */}
-          <p className="text-center text-xs text-white/20 mb-8">
+          <p className="text-center text-xs text-muted-2 mb-8">
             Tap the boxes and type your code
           </p>
 
@@ -159,11 +160,11 @@ function JoinDebateContent() {
           <button
             onClick={handleJoin}
             disabled={code.length !== 4 || loading}
-            className="w-full px-5 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:bg-white/[0.06] disabled:text-white/20 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all mb-3"
+            className="w-full px-5 py-3.5 bg-accent hover:bg-accent-strong disabled:bg-white/10 disabled:text-white/30 disabled:cursor-not-allowed text-[#0d1117] text-sm font-semibold transition-colors mb-3"
           >
             {loading ? (
               <span className="flex items-center justify-center gap-2">
-                <span className="w-3.5 h-3.5 border border-white/30 border-t-white/80 rounded-full animate-spin" />
+                <span className="w-3.5 h-3.5 border border-black/20 border-t-black/60 rounded-full animate-spin" />
                 Checking…
               </span>
             ) : (
@@ -173,17 +174,17 @@ function JoinDebateContent() {
 
           <Link
             href="/dashboard"
-            className="block w-full text-center px-5 py-3 rounded-xl bg-white/[0.04] hover:bg-white/[0.07] border border-white/[0.07] text-white/50 hover:text-white text-sm font-medium transition-all"
+            className="block w-full text-center px-5 py-3 bg-surface hover:bg-surface-2 border border-line text-muted hover:text-cream text-sm font-medium transition-colors"
           >
             Back to dashboard
           </Link>
 
           {/* Divider */}
-          <div className="mt-10 pt-8 border-t border-white/[0.06] text-center">
-            <p className="text-xs text-white/30 mb-3">Don't have a code?</p>
+          <div className="mt-10 pt-8 border-t border-line text-center">
+            <p className="text-xs text-muted-2 mb-3">Don&apos;t have a code?</p>
             <Link
               href="/debate/create"
-              className="text-sm text-indigo-400 hover:text-indigo-300 transition-colors font-medium"
+              className="text-sm text-accent hover:text-accent-strong transition-colors font-medium"
             >
               Start your own debate →
             </Link>

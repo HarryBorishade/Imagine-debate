@@ -303,7 +303,7 @@ export default function DebateRoom() {
             if (history.length > 0) {
               setMessages(history);
             }
-            addSystemMessage("✅ Reconnected to the debate.");
+            addSystemMessage("Reconnected to the debate.");
           });
         }
       });
@@ -357,7 +357,7 @@ export default function DebateRoom() {
           turnIndex?: number;
         }) => {
           addSystemMessage(
-            `⏰ ${data.username || "A player"} ran out of time during ${
+            `${data.username || "A player"} ran out of time during ${
               data.argumentPartLabel || "their turn"
             }.`
           );
@@ -407,7 +407,7 @@ export default function DebateRoom() {
 
           if (data.secondsLeft === GRACE_PERIOD_MAX) {
             addSystemMessage(
-              `⚠️ ${data.username} lost connection. They have ${data.secondsLeft}s to reconnect.`
+              `${data.username} lost connection. They have ${data.secondsLeft}s to reconnect.`
             );
           }
         }
@@ -415,7 +415,7 @@ export default function DebateRoom() {
 
       socket.on("opponent_reconnected", () => {
         setGracePeriod(null);
-        addSystemMessage("✅ Opponent reconnected. Debate continues.");
+        addSystemMessage("Opponent reconnected. Debate continues.");
       });
 
       socket.on("debate_ended", (data: DebateResult) => {
@@ -560,10 +560,10 @@ export default function DebateRoom() {
 
   if (pageState === "loading") {
     return (
-      <div className="flex h-dvh items-center justify-center bg-slate-900">
+      <div className="flex h-dvh items-center justify-center bg-ink">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-slate-400 text-sm">Joining debate room...</p>
+          <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+          <p className="text-muted-2 text-sm">Joining debate room…</p>
         </div>
       </div>
     );
@@ -571,13 +571,13 @@ export default function DebateRoom() {
 
   if (pageState === "error") {
     return (
-      <div className="flex h-dvh items-center justify-center bg-slate-900 p-6">
+      <div className="flex h-dvh items-center justify-center bg-ink p-6">
         <div className="text-center max-w-sm">
-          <p className="text-red-400 text-lg mb-6">{errorMessage}</p>
+          <p className="text-rose-400 text-lg mb-6">{errorMessage}</p>
 
           <button
             onClick={() => router.push("/dashboard")}
-            className="px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors"
+            className="px-6 py-3 bg-accent hover:bg-accent-strong text-[#0d1117] font-semibold transition-colors"
           >
             Go to Dashboard
           </button>
@@ -590,39 +590,39 @@ export default function DebateRoom() {
     const iWon = result.winner.id === myUserId;
 
     return (
-      <div className="flex h-dvh items-center justify-center bg-gradient-to-br from-slate-900 to-slate-800 p-6">
-        <div className="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 sm:p-12 text-center shadow-2xl">
+      <div className="flex h-dvh items-center justify-center bg-ink p-6">
+        <div className="max-w-md w-full border-t-2 border-accent bg-surface p-8 sm:p-12 text-center shadow-2xl shadow-black/40">
           {iWon ? (
             <>
-              <div className="text-7xl sm:text-8xl mb-6">🏆</div>
-              <h1 className="text-3xl sm:text-4xl font-bold text-yellow-400 mb-3">
-                You Won!
+              <p className="eyebrow mb-5 justify-center">Debate decided</p>
+              <h1 className="font-serif text-4xl text-[#fffaf0] mb-3">
+                You won
               </h1>
 
-              <p className="text-slate-300 mb-2">
+              <p className="text-[#c7c0b3] mb-2">
                 {result.reason === "opponent_disconnected"
                   ? `${result.loser.username} did not reconnect in time.`
                   : `${result.loser.username} left the debate.`}
               </p>
 
-              <p className="text-slate-500 text-sm mb-10">
+              <p className="text-muted-2 text-sm mb-10">
                 Congratulations on your victory.
               </p>
             </>
           ) : (
             <>
-              <div className="text-7xl sm:text-8xl mb-6">😔</div>
-              <h1 className="text-3xl sm:text-4xl font-bold text-slate-300 mb-3">
-                You Lost
+              <p className="eyebrow mb-5 justify-center">Debate decided</p>
+              <h1 className="font-serif text-4xl text-[#fffaf0] mb-3">
+                You lost
               </h1>
 
-              <p className="text-slate-300 mb-2">
+              <p className="text-[#c7c0b3] mb-2">
                 {result.reason === "opponent_disconnected"
                   ? `${result.winner.username} wins because you failed to reconnect in time.`
                   : `${result.winner.username} wins because you left the debate.`}
               </p>
 
-              <p className="text-slate-500 text-sm mb-10">
+              <p className="text-muted-2 text-sm mb-10">
                 Better luck next time.
               </p>
             </>
@@ -630,7 +630,7 @@ export default function DebateRoom() {
 
           <button
             onClick={returnToDashboard}
-            className="w-full px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors"
+            className="w-full px-6 py-3 bg-accent hover:bg-accent-strong text-[#0d1117] font-semibold transition-colors"
           >
             Return to Dashboard
           </button>
@@ -648,55 +648,53 @@ export default function DebateRoom() {
   const isUrgent = secondsLeft !== null && secondsLeft <= 10 && !debateCompleted;
 
   return (
-    <div className="flex h-dvh flex-col bg-gradient-to-br from-slate-900 to-slate-800">
-      <header className="flex-none bg-slate-800 border-b border-slate-700 px-4 py-3 sm:px-6 sm:py-4">
+    <div className="flex h-dvh flex-col bg-ink">
+      <header className="flex-none bg-surface border-b border-line px-4 py-3 sm:px-6 sm:py-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-              Room {debateId}
-            </p>
-            <h1 className="mt-0.5 text-lg font-bold leading-snug text-white tracking-tight sm:text-xl">
+            <p className="dossier-index uppercase">Room {debateId}</p>
+            <h1 className="mt-0.5 font-serif text-lg leading-snug text-[#fffaf0] tracking-tight sm:text-xl">
               {debateName || "Loading topic…"}
             </h1>
 
-            <p className="mt-1 text-xs text-slate-400 sm:text-sm">
+            <p className="mt-1 text-xs text-muted sm:text-sm">
               {mySide ? (
                 <>
                   You are arguing{" "}
                   <span
                     className={`font-semibold ${
-                      mySide === "for" ? "text-emerald-400" : "text-red-400"
+                      mySide === "for" ? "text-emerald-400" : "text-rose-400"
                     }`}
                   >
                     {mySide === "for" ? "FOR" : "AGAINST"}
                   </span>
                 </>
               ) : (
-                "Waiting for debate to start..."
+                "Waiting for debate to start…"
               )}
             </p>
           </div>
 
           <button
             onClick={handleLeave}
-            className="flex-none rounded-lg px-3 py-2 text-xs font-medium text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 transition-colors sm:text-sm"
+            className="flex-none px-3 py-2 text-xs font-medium text-muted hover:text-cream bg-black/20 hover:bg-white/8 border border-line transition-colors sm:text-sm"
           >
             Leave
           </button>
         </div>
       </header>
 
-      <div className="flex-none bg-slate-800/80 border-b border-slate-700 px-4 py-2.5 sm:px-6 sm:py-3">
+      <div className="flex-none bg-surface/80 border-b border-line px-4 py-2.5 sm:px-6 sm:py-3">
         <div className="max-w-3xl mx-auto">
           <div className="flex items-start justify-between gap-4 mb-2">
             <div>
               <p
                 className={`text-sm font-semibold ${
                   debateCompleted
-                    ? "text-blue-400"
+                    ? "text-accent"
                     : isMyTurn
                     ? "text-emerald-400"
-                    : "text-slate-400"
+                    : "text-muted"
                 }`}
               >
                 {debateCompleted
@@ -707,13 +705,13 @@ export default function DebateRoom() {
               </p>
 
               {argumentPartLabel && !debateCompleted && (
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs text-muted-2 mt-1">
                   Stage{" "}
                   {stageIndex !== null && totalStages !== null
                     ? `${stageIndex + 1} of ${totalStages}`
                     : ""}
                   {" · "}
-                  <span className="font-semibold text-slate-300">
+                  <span className="font-semibold text-[#c7c0b3]">
                     {argumentPartLabel}
                   </span>
                   {currentSide && (
@@ -723,7 +721,7 @@ export default function DebateRoom() {
                         className={
                           currentSide === "for"
                             ? "text-emerald-400"
-                            : "text-red-400"
+                            : "text-rose-400"
                         }
                       >
                         {currentSide.toUpperCase()}
@@ -735,18 +733,18 @@ export default function DebateRoom() {
             </div>
 
             <p
-              className={`text-sm tabular-nums ${
-                isUrgent ? "font-bold text-red-400" : "text-slate-400"
+              className={`text-sm tabular-nums font-mono ${
+                isUrgent ? "font-bold text-rose-400" : "text-muted"
               }`}
             >
               {secondsLeft !== null && !debateCompleted ? `${secondsLeft}s` : "--"}
             </p>
           </div>
 
-          <div className="w-full h-1.5 bg-slate-700 rounded-full overflow-hidden">
+          <div className="w-full h-1 bg-black/30 overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all duration-1000 ease-linear ${
-                isUrgent ? "bg-red-500" : "bg-blue-500"
+              className={`h-full transition-all duration-1000 ease-linear ${
+                isUrgent ? "bg-rose-400" : "bg-accent"
               }`}
               style={{ width: `${debateCompleted ? 0 : turnProgress}%` }}
             />
@@ -755,27 +753,27 @@ export default function DebateRoom() {
       </div>
 
       {gracePeriod && (
-        <div className="flex-none bg-orange-950/60 border-b border-orange-700/50 px-4 py-3 sm:px-6 sm:py-4">
+        <div className="flex-none bg-amber-400/10 border-b border-amber-400/25 px-4 py-3 sm:px-6 sm:py-4">
           <div className="max-w-3xl mx-auto">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-orange-300 font-semibold text-sm sm:text-base">
-                ⚠️ {gracePeriod.username} disconnected
+              <p className="text-amber-300 font-semibold text-sm sm:text-base">
+                {gracePeriod.username} disconnected
               </p>
 
               <span
-                className={`text-xl sm:text-2xl font-bold tabular-nums ${
+                className={`text-xl sm:text-2xl font-mono font-bold tabular-nums ${
                   gracePeriod.secondsLeft <= 5
-                    ? "text-red-400"
-                    : "text-orange-300"
+                    ? "text-rose-400"
+                    : "text-amber-300"
                 }`}
               >
                 {gracePeriod.secondsLeft}s
               </span>
             </div>
 
-            <div className="w-full h-1.5 bg-orange-950 rounded-full overflow-hidden">
+            <div className="w-full h-1 bg-black/30 overflow-hidden">
               <div
-                className="h-full bg-orange-400 rounded-full transition-all duration-1000 ease-linear"
+                className="h-full bg-amber-400 transition-all duration-1000 ease-linear"
                 style={{
                   width: `${(gracePeriod.secondsLeft / GRACE_PERIOD_MAX) * 100}%`,
                 }}
@@ -787,7 +785,7 @@ export default function DebateRoom() {
 
       <main className="flex-1 overflow-y-auto px-4 py-4 space-y-3 sm:px-6 sm:py-6 overscroll-contain">
         {messages.length === 0 && (
-          <p className="text-slate-500 text-center text-sm py-12">
+          <p className="text-muted-2 text-center text-sm py-12">
             No messages yet. The player arguing FOR makes the opening argument.
           </p>
         )}
@@ -796,7 +794,7 @@ export default function DebateRoom() {
           msg.system ? (
             <div
               key={`system-${index}`}
-              className="text-center text-xs text-slate-500 italic py-1"
+              className="text-center text-xs text-muted-2 italic py-1"
             >
               {msg.content}
             </div>
@@ -810,10 +808,10 @@ export default function DebateRoom() {
               }`}
             >
               <div
-                className={`max-w-[85%] sm:max-w-xl rounded-2xl px-4 py-2.5 sm:px-5 sm:py-3 ${
+                className={`max-w-[85%] sm:max-w-xl border px-4 py-2.5 sm:px-5 sm:py-3 ${
                   msg.userId === myUserId
-                    ? "bg-blue-600 text-white rounded-br-sm"
-                    : "bg-slate-700 text-slate-100 rounded-bl-sm"
+                    ? "bg-accent/10 border-accent/30 text-cream"
+                    : "bg-surface border-line text-[#e8e1d2]"
                 }`}
               >
                 <div className="flex items-baseline gap-2 mb-1">
@@ -834,12 +832,12 @@ export default function DebateRoom() {
                 {msg.argumentPartLabel && (
                   <div className="mb-2">
                     <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                      className={`text-[10px] font-bold uppercase tracking-wide ${
                         msg.side === "for"
-                          ? "bg-emerald-500/15 text-emerald-300"
+                          ? "text-emerald-300"
                           : msg.side === "against"
-                          ? "bg-red-500/15 text-red-300"
-                          : "bg-slate-500/15 text-slate-300"
+                          ? "text-rose-300"
+                          : "text-muted-2"
                       }`}
                     >
                       {msg.side ? `${msg.side.toUpperCase()} — ` : ""}
@@ -860,12 +858,12 @@ export default function DebateRoom() {
       </main>
 
       <footer
-        className="flex-none bg-slate-800 border-t border-slate-700 px-4 py-3 sm:px-6 sm:py-4"
+        className="flex-none bg-surface border-t border-line px-4 py-3 sm:px-6 sm:py-4"
         style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
       >
         <div className="max-w-3xl mx-auto">
           {turnError && (
-            <p className="text-red-400 text-sm mb-2 text-center">{turnError}</p>
+            <p className="text-rose-400 text-sm mb-2 text-center">{turnError}</p>
           )}
 
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-3">
@@ -879,14 +877,12 @@ export default function DebateRoom() {
                   ? "Debate completed."
                   : isMyTurn
                   ? `Write your ${argumentPartLabel || "argument"}… (Enter to send, Shift+Enter for a new line)`
-                  : "Wait for your turn..."
+                  : "Wait for your turn…"
               }
               disabled={!isMyTurn || debateCompleted}
               rows={3}
-              className={`flex-1 resize-none rounded-xl bg-slate-700 text-white px-4 py-3 text-sm leading-relaxed placeholder-slate-500 focus:outline-none focus:ring-2 transition-shadow disabled:opacity-50 disabled:cursor-not-allowed sm:rows-2 ${
-                isOverWordLimit
-                  ? "focus:ring-red-500 ring-1 ring-red-500/60"
-                  : "focus:ring-blue-500"
+              className={`flex-1 resize-none border bg-black/20 text-cream px-4 py-3 text-sm leading-relaxed placeholder:text-muted-2/60 focus:outline-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed sm:rows-2 ${
+                isOverWordLimit ? "border-rose-400/60" : "border-line focus:border-accent"
               }`}
             />
 
@@ -896,7 +892,7 @@ export default function DebateRoom() {
                 disabled={
                   !input.trim() || !isMyTurn || debateCompleted || isOverWordLimit
                 }
-                className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl text-sm font-semibold transition-colors sm:flex-none"
+                className="flex-1 bg-accent hover:bg-accent-strong disabled:bg-white/10 disabled:text-white/30 disabled:cursor-not-allowed text-[#0d1117] px-6 py-3 text-sm font-semibold transition-colors sm:flex-none"
               >
                 Send
               </button>
@@ -904,7 +900,7 @@ export default function DebateRoom() {
               <button
                 onClick={passTurn}
                 disabled={!isMyTurn || debateCompleted}
-                className="flex-1 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-700/60 disabled:text-slate-500 disabled:cursor-not-allowed text-white px-5 py-3 rounded-xl text-sm font-semibold transition-colors sm:flex-none"
+                className="flex-1 bg-black/20 hover:bg-white/8 disabled:bg-white/5 disabled:text-white/20 disabled:cursor-not-allowed text-cream border border-line px-5 py-3 text-sm font-semibold transition-colors sm:flex-none"
               >
                 Pass
               </button>
@@ -913,7 +909,7 @@ export default function DebateRoom() {
 
           <div className="mt-2 flex items-center justify-between text-xs">
             <span
-              className={isOverWordLimit ? "text-red-400" : "text-slate-500"}
+              className={isOverWordLimit ? "text-rose-400" : "text-muted-2"}
             >
               {isOverWordLimit
                 ? `Too long by ${wordCount - MAX_MESSAGE_WORDS} words.`
@@ -921,8 +917,8 @@ export default function DebateRoom() {
             </span>
 
             <span
-              className={`tabular-nums ${
-                isOverWordLimit ? "text-red-400" : "text-slate-500"
+              className={`tabular-nums font-mono ${
+                isOverWordLimit ? "text-rose-400" : "text-muted-2"
               }`}
             >
               {wordCount}/{MAX_MESSAGE_WORDS}

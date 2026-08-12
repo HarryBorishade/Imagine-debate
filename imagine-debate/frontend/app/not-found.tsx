@@ -39,10 +39,8 @@ export default function NotFound() {
 
       <main id="main-content" className="flex-1">
         <section className="mx-auto max-w-3xl px-5 py-20 text-center sm:py-28">
-          <p className="text-sm font-semibold uppercase tracking-[0.28em] text-accent/80">
-            Error 404
-          </p>
-          <h1 className="mt-5 text-5xl font-semibold tracking-tight text-[#fffaf0] sm:text-6xl">
+          <p className="eyebrow justify-center">Error 404</p>
+          <h1 className="mt-5 font-serif text-5xl tracking-tight text-[#fffaf0] sm:text-6xl">
             This page lost the debate.
           </h1>
           <p className="mx-auto mt-5 max-w-xl text-lg leading-8 text-muted">
@@ -53,26 +51,26 @@ export default function NotFound() {
           <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
             <Link
               href="/"
-              className="rounded-md bg-cream px-5 py-3 text-sm font-semibold text-ink transition-colors hover:bg-white"
+              className="bg-cream px-5 py-3 text-sm font-semibold text-ink transition-colors hover:bg-white"
             >
               Back to home
             </Link>
             <Link
               href="/dashboard"
-              className="rounded-md border border-line-strong px-5 py-3 text-sm font-semibold text-cream transition-colors hover:bg-white/5"
+              className="border border-line-strong px-5 py-3 text-sm font-semibold text-cream transition-colors hover:bg-white/5"
             >
               Go to dashboard
             </Link>
           </div>
 
-          <div className="mt-14 grid gap-3 text-left sm:grid-cols-2">
+          <div className="mt-14 grid gap-px border border-line bg-line text-left sm:grid-cols-2">
             {SUGGESTIONS.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
-                className="group rounded-lg border border-line bg-surface p-5 transition hover:border-accent/30 hover:bg-surface-2"
+                className="group bg-surface p-5 transition hover:bg-surface-2"
               >
-                <p className="font-semibold text-[#fffaf0] group-hover:text-accent">
+                <p className="font-serif text-lg text-[#fffaf0] group-hover:text-accent">
                   {item.title}
                 </p>
                 <p className="mt-1.5 text-sm leading-6 text-muted-2">

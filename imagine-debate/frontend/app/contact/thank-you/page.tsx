@@ -18,8 +18,8 @@ export default function ThankYouPage() {
 
       <main id="main-content" className="flex flex-1 items-center justify-center px-5 py-16">
         <div className="w-full max-w-lg text-center">
-          <div className="mx-auto mb-7 flex h-16 w-16 items-center justify-center rounded-full border border-accent/30 bg-accent/10">
-            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <div className="mx-auto mb-7 flex h-16 w-16 items-center justify-center border border-accent/30 bg-accent/10">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path
                 d="M5 12.5l4.5 4.5L19 7"
                 stroke="var(--accent)"
@@ -30,10 +30,8 @@ export default function ThankYouPage() {
             </svg>
           </div>
 
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-accent/80">
-            Enquiry received
-          </p>
-          <h1 className="mt-4 text-4xl font-semibold tracking-tight text-[#fffaf0] sm:text-5xl">
+          <p className="eyebrow justify-center">Enquiry received</p>
+          <h1 className="mt-4 font-serif text-4xl tracking-tight text-[#fffaf0] sm:text-5xl">
             Thanks — we&apos;re on it.
           </h1>
           <p className="mx-auto mt-5 max-w-md text-lg leading-8 text-muted">
@@ -44,13 +42,13 @@ export default function ThankYouPage() {
           <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
             <Link
               href="/dashboard"
-              className="rounded-md bg-cream px-5 py-3 text-sm font-semibold text-ink transition-colors hover:bg-white"
+              className="bg-cream px-5 py-3 text-sm font-semibold text-ink transition-colors hover:bg-white"
             >
               Go to dashboard
             </Link>
             <Link
               href="/"
-              className="rounded-md border border-line-strong px-5 py-3 text-sm font-semibold text-cream transition-colors hover:bg-white/5"
+              className="border border-line-strong px-5 py-3 text-sm font-semibold text-cream transition-colors hover:bg-white/5"
             >
               Back to home
             </Link>

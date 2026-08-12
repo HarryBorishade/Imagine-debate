@@ -349,21 +349,21 @@ export default function DebateLobby() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-[#0d1117]">
-        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      <div className="flex items-center justify-center min-h-screen bg-ink">
+        <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-[#0d1117] p-6">
+      <div className="flex items-center justify-center min-h-screen bg-ink p-6">
         <div className="text-center max-w-sm">
           <div className="text-rose-400 text-lg mb-4">{error}</div>
 
           <button
             onClick={() => router.push("/dashboard")}
-            className="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition-all"
+            className="px-6 py-3 bg-accent hover:bg-accent-strong text-[#0d1117] font-semibold transition-colors"
           >
             Go to Dashboard
           </button>
@@ -377,53 +377,52 @@ export default function DebateLobby() {
   const opponentSide = players.find((p) => p.id !== myUserId)?.side ?? null;
 
   return (
-    <div className="min-h-screen bg-[#0d1117] flex items-center justify-center p-6">
+    <div className="min-h-screen bg-ink flex items-center justify-center p-6">
       <div className="max-w-2xl w-full">
         {stage === "waiting" && (
-          <div className="bg-white/[0.03] backdrop-blur border border-white/[0.07] rounded-2xl p-12 text-center">
+          <div className="border-t-2 border-accent bg-surface p-8 text-center sm:p-12">
             <div className="mb-8">
               <div className="relative w-16 h-16 mx-auto">
-                <div className="absolute inset-0 border-4 border-transparent border-t-indigo-500 border-r-indigo-500 rounded-full animate-spin" />
+                <div className="absolute inset-0 border-4 border-transparent border-t-accent border-r-accent rounded-full animate-spin" />
                 <div
-                  className="absolute inset-2 border-4 border-transparent border-b-indigo-400 border-l-indigo-400 rounded-full animate-spin"
+                  className="absolute inset-2 border-4 border-transparent border-b-line-strong border-l-line-strong rounded-full animate-spin"
                   style={{ animationDirection: "reverse" }}
                 />
               </div>
             </div>
 
-            <h2 className="text-3xl font-bold text-white mb-2">
-              Waiting for Opponent
+            <p className="eyebrow mb-3 justify-center">Room ready</p>
+            <h2 className="font-serif text-3xl text-[#fffaf0] mb-2">
+              Waiting for opponent
             </h2>
 
-            <p className="text-white/40 mb-8 text-sm leading-relaxed">
+            <p className="text-muted mb-8 text-sm leading-relaxed">
               Your debate room is ready. Share the code below with your
               opponent.
             </p>
 
-            <div className="bg-indigo-600/[0.07] border border-indigo-500/20 rounded-2xl p-8 mb-8">
-              <p className="text-white/30 text-xs uppercase tracking-widest mb-3">
-                Room Code
-              </p>
+            <div className="border border-line bg-black/20 p-8 mb-8">
+              <p className="dossier-index uppercase mb-3">Room code</p>
 
-              <div className="text-6xl font-bold text-indigo-400 font-mono tracking-[0.25em] mb-5">
+              <div className="text-6xl font-semibold text-cream font-mono tracking-[0.25em] mb-5">
                 {debateCode}
               </div>
 
               <button
                 onClick={() => navigator.clipboard.writeText(debateCode)}
-                className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-all"
+                className="px-5 py-2 bg-accent hover:bg-accent-strong text-[#0d1117] text-sm font-semibold transition-colors"
               >
                 Copy code
               </button>
             </div>
 
-            <div className="text-white/25 text-sm mb-8">
+            <div className="text-muted-2 text-sm mb-8 font-mono tabular-nums">
               Waiting {minutes}m {seconds.toString().padStart(2, "0")}s
             </div>
 
             <button
               onClick={handleCancel}
-              className="px-6 py-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.08] border border-white/[0.08] text-white/60 hover:text-white text-sm font-medium transition-all"
+              className="px-6 py-3 bg-black/10 hover:bg-white/8 border border-line text-muted hover:text-cream text-sm font-medium transition-colors"
             >
               Cancel
             </button>
@@ -431,33 +430,19 @@ export default function DebateLobby() {
         )}
 
         {stage === "opponent-joined" && (
-          <div className="bg-white/[0.03] backdrop-blur border border-white/[0.07] rounded-2xl p-10 text-center">
-            <div className="inline-block p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-full mb-6">
-              <svg
-                className="w-8 h-8 text-emerald-400"
-                fill="currentColor"
-                viewBox="0 0 20 20"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </div>
+          <div className="border-t-2 border-accent bg-surface p-8 text-center sm:p-10">
+            <p className="eyebrow mb-4 justify-center">Opponent joined</p>
 
-            <h2 className="text-2xl font-bold text-white mb-1">
-              Opponent joined!
+            <h2 className="font-serif text-2xl text-[#fffaf0] mb-1">
+              Choose your side
             </h2>
 
-            <p className="text-white/40 mb-8 text-sm">
-              Choose your side, then click Ready when set.
+            <p className="text-muted mb-8 text-sm">
+              Pick FOR or AGAINST, then mark yourself ready.
             </p>
 
             <div className="mb-6">
-              <p className="text-xs font-semibold uppercase tracking-widest text-white/30 mb-3">
-                Your position
-              </p>
+              <p className="dossier-index uppercase mb-3">Your position</p>
 
               <div className="grid grid-cols-2 gap-3">
                 {(["for", "against"] as const).map((side) => {
@@ -469,31 +454,27 @@ export default function DebateLobby() {
                       key={side}
                       onClick={() => !isOpponentSide && handleChooseSide(side)}
                       disabled={isOpponentSide}
-                      className={`relative py-5 px-4 rounded-xl border text-sm font-semibold transition-all ${
+                      className={`relative py-5 px-4 border text-sm font-semibold transition-colors ${
                         isOpponentSide
-                          ? "border-white/[0.05] bg-white/[0.02] text-white/20 cursor-not-allowed"
+                          ? "border-line bg-black/10 text-muted-2/40 cursor-not-allowed"
                           : isSelected
                           ? side === "for"
-                            ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
-                            : "border-rose-500/50 bg-rose-500/10 text-rose-300"
-                          : "border-white/[0.08] bg-white/[0.03] text-white/50 hover:border-white/20 hover:text-white/80"
+                            ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-300"
+                            : "border-rose-400/50 bg-rose-400/10 text-rose-300"
+                          : "border-line bg-black/10 text-muted hover:border-line-strong hover:text-cream"
                       }`}
                     >
-                      <span className="block text-lg mb-1">
-                        {side === "for" ? "👍" : "👎"}
-                      </span>
-
-                      <span className="capitalize">{side}</span>
+                      <span className="uppercase tracking-wide">{side}</span>
 
                       {isOpponentSide && (
-                        <span className="absolute top-2 right-2 text-[10px] text-white/25 font-normal">
+                        <span className="absolute top-2 right-2 text-[10px] text-muted-2/60 font-normal">
                           taken
                         </span>
                       )}
 
                       {isSelected && (
                         <span className="absolute top-2 right-2 text-[10px] font-normal">
-                          ✓ you
+                          you
                         </span>
                       )}
                     </button>
@@ -502,25 +483,23 @@ export default function DebateLobby() {
               </div>
             </div>
 
-            <div className="bg-white/[0.03] rounded-xl p-4 mb-6 text-left border border-white/[0.06]">
-              <h3 className="text-xs font-semibold uppercase tracking-widest text-white/30 mb-3">
-                Players
-              </h3>
+            <div className="bg-black/10 p-4 mb-6 text-left border border-line">
+              <h3 className="dossier-index uppercase mb-3">Players</h3>
 
               <div className="space-y-2.5">
                 {players.map((p) => (
                   <div key={p.id} className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-white/70">
+                      <span className="text-sm text-[#c7c0b3]">
                         {p.username}
                       </span>
 
                       {p.side && (
                         <span
-                          className={`text-[10px] font-semibold px-1.5 py-0.5 rounded capitalize ${
+                          className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 ${
                             p.side === "for"
-                              ? "bg-emerald-500/15 text-emerald-400"
-                              : "bg-rose-500/15 text-rose-400"
+                              ? "text-emerald-400"
+                              : "text-rose-400"
                           }`}
                         >
                           {p.side}
@@ -529,10 +508,10 @@ export default function DebateLobby() {
                     </div>
 
                     <span
-                      className={`text-xs font-medium px-2.5 py-1 rounded-lg ${
+                      className={`text-xs font-medium px-2 py-1 border ${
                         p.ready
-                          ? "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30"
-                          : "bg-white/[0.05] text-white/30"
+                          ? "border-emerald-400/30 text-emerald-300"
+                          : "border-line text-muted-2"
                       }`}
                     >
                       {p.ready ? "Ready" : "Not ready"}
@@ -550,14 +529,14 @@ export default function DebateLobby() {
               <button
                 onClick={handleReady}
                 disabled={!mySide}
-                className="w-full px-8 py-4 rounded-xl text-white font-bold text-base transition-all mb-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-white/[0.06] disabled:text-white/20 disabled:cursor-not-allowed"
+                className="w-full px-8 py-4 text-[#0d1117] font-bold text-base transition-colors mb-3 bg-accent hover:bg-accent-strong disabled:bg-white/10 disabled:text-white/30 disabled:cursor-not-allowed"
               >
-                {mySide ? "I'm Ready" : "Choose a side first"}
+                {mySide ? "I'm ready" : "Choose a side first"}
               </button>
             ) : (
               <button
                 onClick={handleUnready}
-                className="w-full px-8 py-4 rounded-xl text-white font-bold text-base transition-all mb-3 bg-amber-600 hover:bg-amber-500"
+                className="w-full px-8 py-4 text-[#0d1117] font-bold text-base transition-colors mb-3 bg-amber-400 hover:bg-amber-300"
               >
                 Waiting for opponent… tap to unready
               </button>
@@ -565,7 +544,7 @@ export default function DebateLobby() {
 
             <button
               onClick={handleCancel}
-              className="w-full px-6 py-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.08] border border-white/[0.08] text-white/50 hover:text-white text-sm font-medium transition-all"
+              className="w-full px-6 py-3 bg-black/10 hover:bg-white/8 border border-line text-muted hover:text-cream text-sm font-medium transition-colors"
             >
               Cancel
             </button>
@@ -573,18 +552,16 @@ export default function DebateLobby() {
         )}
 
         {stage === "countdown" && (
-          <div className="bg-white/[0.03] backdrop-blur border border-white/[0.07] rounded-2xl p-12 text-center">
-            <h2 className="text-sm font-semibold text-white/60 mb-8 tracking-widest uppercase">
-              Debate starting in
-            </h2>
+          <div className="border-t-2 border-accent bg-surface p-12 text-center">
+            <p className="eyebrow mb-8 justify-center">Debate starting in</p>
 
-            <div className="text-9xl font-bold text-indigo-400 mb-12 tabular-nums">
+            <div className="font-serif text-9xl text-cream mb-12 tabular-nums">
               {countdown}
             </div>
 
-            <p className="text-white/30 text-sm">
-              "For" begins with the Opening Statement. The debate will then move
-              through each stage in order.
+            <p className="text-muted-2 text-sm">
+              &ldquo;For&rdquo; begins with the Opening Statement. The debate
+              will then move through each stage in order.
             </p>
           </div>
         )}

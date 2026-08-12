@@ -43,6 +43,7 @@
 
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-serif: var(--font-fraunces);
 }
 
 * {
@@ -62,6 +63,42 @@ body {
     Arial, Helvetica, sans-serif;
   /* Avoid iOS rubber-band flashes of white behind the dark app. */
   overscroll-behavior-y: none;
+  /* A faint grain keeps large charcoal fields from reading as a flat,
+     machine-generated gradient — closer to printed paper than a screen. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+}
+
+/* ---------------------------------------------------------------------------
+   Editorial primitives shared across pages — an eyebrow label, a numbered
+   dossier index, and a hairline rule with a numbered "issue" mark. Kept here
+   rather than duplicated as inline Tailwind on every page.
+--------------------------------------------------------------------------- */
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.eyebrow::before {
+  content: "";
+  display: inline-block;
+  width: 1.25em;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.7;
+}
+
+.dossier-index {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  color: var(--muted-2);
 }
 
 ::selection {

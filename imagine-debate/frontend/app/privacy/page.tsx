@@ -24,8 +24,8 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className="scroll-mt-24">
-      <h2 className="text-xl font-semibold tracking-tight text-[#fffaf0]">
+    <section id={id} className="scroll-mt-24 border-t border-line pt-8 first:border-t-0 first:pt-0">
+      <h2 className="font-serif text-xl tracking-tight text-[#fffaf0]">
         {title}
       </h2>
       <div className="mt-3 space-y-3 text-sm leading-7 text-muted">{children}</div>
@@ -44,10 +44,8 @@ export default function PrivacyPage() {
             items={[{ label: "Home", href: "/" }, { label: "Privacy policy" }]}
           />
 
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-accent/80">
-            Your data
-          </p>
-          <h1 className="mt-4 text-4xl font-semibold tracking-tight text-[#fffaf0] sm:text-5xl">
+          <p className="eyebrow">Your data</p>
+          <h1 className="mt-4 font-serif text-4xl tracking-tight text-[#fffaf0] sm:text-5xl">
             Privacy policy
           </h1>
           <p className="mt-4 text-sm text-muted-2">Last updated: {LAST_UPDATED}</p>

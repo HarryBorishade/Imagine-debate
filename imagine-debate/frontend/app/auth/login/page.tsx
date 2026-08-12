@@ -73,16 +73,13 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen flex-col bg-ink px-4 py-10 text-cream">
       <div className="mx-auto w-full max-w-md">
-        <Link
-          href="/"
-          className="mb-8 inline-block text-sm font-semibold tracking-tight text-cream"
-        >
-          ← Imagine Debate
+        <Link href="/" className="eyebrow mb-10 inline-flex">
+          Imagine Debate
         </Link>
 
-        <div className="rounded-2xl border border-line bg-surface p-7 sm:p-9">
+        <div className="border-t-2 border-accent bg-surface p-7 sm:p-9">
           <div className="mb-7">
-            <h1 className="text-2xl font-semibold tracking-tight text-[#fffaf0]">
+            <h1 className="font-serif text-3xl tracking-tight text-[#fffaf0]">
               Welcome back
             </h1>
             <p className="mt-1.5 text-sm text-muted-2">
@@ -93,14 +90,14 @@ export default function LoginPage() {
           {error && (
             <div
               role="alert"
-              className="mb-5 rounded-lg border border-against/30 bg-against/10 px-4 py-3 text-sm text-rose-200"
+              className="mb-5 border border-against/30 bg-against/10 px-4 py-3 text-sm text-rose-200"
             >
               {error}
             </div>
           )}
 
           {success && (
-            <div className="mb-5 rounded-lg border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-emerald-200">
+            <div className="mb-5 border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-emerald-200">
               {success}
             </div>
           )}
@@ -117,7 +114,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
-                className="w-full rounded-lg border border-line bg-black/20 px-4 py-3 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none"
+                className="w-full border border-line bg-black/20 px-4 py-3 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none"
               />
               {email && !isValidEmail && (
                 <p className="mt-1.5 text-xs text-rose-300">Please enter a valid email.</p>
@@ -146,7 +143,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="current-password"
-                  className="w-full rounded-lg border border-line bg-black/20 px-4 py-3 pr-16 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none"
+                  className="w-full border border-line bg-black/20 px-4 py-3 pr-16 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none"
                 />
                 <button
                   type="button"
@@ -161,7 +158,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={!isFormValid || loading}
-              className="w-full rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
+              className="w-full bg-accent px-5 py-3 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
             >
               {loading ? "Signing in…" : "Sign in"}
             </button>

@@ -12,7 +12,7 @@ export function SiteFooter() {
       <div className="mx-auto max-w-6xl px-5 py-12">
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
           <div>
-            <Link href="/" className="text-base font-semibold tracking-tight text-cream">
+            <Link href="/" className="font-serif text-lg tracking-tight text-cream">
               {SITE.name}
             </Link>
             <p className="mt-3 max-w-xs text-sm leading-6 text-muted-2">
@@ -22,7 +22,7 @@ export function SiteFooter() {
 
           {FOOTER_NAV.map((group) => (
             <nav key={group.heading} aria-label={group.heading}>
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-2">
+              <h2 className="dossier-index uppercase text-muted-2">
                 {group.heading}
               </h2>
               <ul className="mt-4 space-y-2.5">
