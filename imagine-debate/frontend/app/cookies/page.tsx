@@ -67,7 +67,7 @@ export default function CookiesPage() {
             for how any resulting data is handled.
           </p>
 
-          <div className="mt-10 overflow-x-auto border border-line bg-surface">
+          <div className="card-panel mt-10 overflow-x-auto">
             <div className="grid min-w-[640px] grid-cols-4 border-b border-line bg-white/[0.03] px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-2">
               <span>Name</span>
               <span>Purpose</span>
@@ -96,7 +96,7 @@ export default function CookiesPage() {
             ))}
           </div>
 
-          <div className="mt-8 border-t-2 border-accent bg-[#141719] p-5">
+          <div className="mt-8 rounded-[var(--radius-lg)] border-t-2 border-accent bg-[#141719] p-5 shadow-[var(--shadow-card)]">
             <h2 className="font-serif text-lg text-[#fffaf0]">
               Your choices
             </h2>

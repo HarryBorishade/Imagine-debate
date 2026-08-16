@@ -77,7 +77,7 @@ export default function LoginPage() {
           Imagine Debate
         </Link>
 
-        <div className="border-t-2 border-accent bg-surface p-7 sm:p-9">
+        <div className="card-panel p-7 sm:p-9">
           <div className="mb-7">
             <h1 className="font-serif text-3xl tracking-tight text-[#fffaf0]">
               Welcome back
@@ -114,7 +114,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
-                className="w-full border border-line bg-black/20 px-4 py-3 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none"
+                className="w-full rounded-lg border border-line bg-black/20 px-4 py-3 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none"
               />
               {email && !isValidEmail && (
                 <p className="mt-1.5 text-xs text-rose-300">Please enter a valid email.</p>
@@ -143,7 +143,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="current-password"
-                  className="w-full border border-line bg-black/20 px-4 py-3 pr-16 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none"
+                  className="w-full rounded-lg border border-line bg-black/20 px-4 py-3 pr-16 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none"
                 />
                 <button
                   type="button"
@@ -158,7 +158,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={!isFormValid || loading}
-              className="w-full bg-accent px-5 py-3 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
+              className="w-full rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
             >
               {loading ? "Signing in…" : "Sign in"}
             </button>

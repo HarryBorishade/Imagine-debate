@@ -22,12 +22,12 @@ export function CookieConsentBanner() {
     <div
       role="region"
       aria-label="Cookie preferences"
-      className="fixed inset-x-0 bottom-0 z-50 border-t-2 border-accent bg-surface/98 px-5 py-4 shadow-2xl shadow-black/40 backdrop-blur sm:px-6"
+      className="fixed inset-x-4 bottom-4 z-50 rounded-2xl border border-line bg-surface/98 px-5 py-4 shadow-[var(--shadow-card-lg)] backdrop-blur sm:inset-x-6 sm:px-6"
     >
       <div className="mx-auto flex max-w-4xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm leading-6 text-muted">
           We use strictly necessary storage to run the app, plus optional
-          analytics cookies to understand usage — only if you agree. See our{" "}
+          analytics cookies to understand usage, only if you agree. See our{" "}
           <Link href="/cookies" className="text-accent underline-offset-4 hover:underline">
             cookies page
           </Link>
@@ -37,13 +37,13 @@ export function CookieConsentBanner() {
         <div className="flex shrink-0 gap-2">
           <button
             onClick={() => setStoredConsent("rejected")}
-            className="border border-line-strong px-4 py-2 text-sm font-semibold text-cream transition-colors hover:bg-white/5"
+            className="rounded-lg border border-line-strong px-4 py-2 text-sm font-semibold text-cream transition-colors hover:bg-white/5"
           >
             Reject
           </button>
           <button
             onClick={() => setStoredConsent("accepted")}
-            className="bg-accent px-4 py-2 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong"
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong"
           >
             Accept
           </button>

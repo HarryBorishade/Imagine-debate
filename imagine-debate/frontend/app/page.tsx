@@ -228,7 +228,7 @@ export default function Home() {
               // Neutral placeholder while the session check is in flight —
               // avoids flashing "Sign in" then immediately swapping to the
               // signed-in state for returning users.
-              <div className="h-9 w-24 animate-pulse bg-white/5" />
+              <div className="h-9 w-24 animate-pulse rounded-lg bg-white/5" />
             ) : user ? (
               <>
                 <span className="hidden text-muted sm:block">
@@ -257,7 +257,7 @@ export default function Home() {
                 </Link>
                 <Link
                   href="/auth/signup"
-                  className="border border-cream/80 px-4 py-2 font-semibold text-cream transition-colors hover:bg-cream hover:text-ink"
+                  className="rounded-lg border border-cream/80 px-4 py-2 font-semibold text-cream transition-colors hover:bg-cream hover:text-ink"
                 >
                   Create account
                 </Link>
@@ -283,13 +283,13 @@ export default function Home() {
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <button
                 onClick={() => handleStartDebate()}
-                className="bg-cream px-5 py-3 text-sm font-semibold text-ink transition-colors hover:bg-white"
+                className="rounded-lg bg-cream px-5 py-3 text-sm font-semibold text-ink transition-colors hover:bg-white"
               >
                 Start a debate
               </button>
               <Link
                 href={user ? "/dashboard" : "/auth/signup"}
-                className="border border-white/15 px-5 py-3 text-center text-sm font-semibold text-[#e8e1d2] transition-colors hover:bg-white/8"
+                className="rounded-lg border border-white/15 px-5 py-3 text-center text-sm font-semibold text-[#e8e1d2] transition-colors hover:bg-white/8"
               >
                 {user ? "View dashboard" : "Create free account"}
               </Link>
@@ -300,12 +300,11 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="border-t-2 border-accent bg-surface p-6 shadow-2xl shadow-black/20">
+          <div className="rounded-[var(--radius-lg)] border-t-2 border-accent bg-surface p-6 shadow-[var(--shadow-card)]">
             <div className="flex items-baseline justify-between border-b border-line pb-4">
               <p className="font-serif text-lg text-[#fffaf0]">
                 Join an existing room
               </p>
-              <span className="dossier-index">No. 01</span>
             </div>
             <p className="mt-3 text-sm text-muted-2">
               Enter the code once. We will take you straight to the lobby.
@@ -327,12 +326,12 @@ export default function Home() {
                   }}
                   placeholder="0000"
                   maxLength={4}
-                  className="min-w-0 flex-1 border border-line bg-black/20 px-4 py-3 font-mono text-lg tracking-[0.45em] text-white placeholder:text-white/20 focus:border-accent focus:outline-none"
+                  className="min-w-0 flex-1 rounded-lg border border-line bg-black/20 px-4 py-3 font-mono text-lg tracking-[0.45em] text-white placeholder:text-white/20 focus:border-accent focus:outline-none"
                 />
                 <button
                   type="submit"
                   disabled={joining || joinCode.length !== 4}
-                  className="bg-accent px-5 py-3 text-sm font-semibold text-[#111411] transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
+                  className="rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-[#111411] transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
                 >
                   {joining ? "Joining" : "Join"}
                 </button>
@@ -386,13 +385,13 @@ export default function Home() {
             </div>
             <button
               onClick={() => handleStartDebate()}
-              className="hidden border border-white/15 px-4 py-2 text-sm font-semibold text-[#d7d0c2] transition-colors hover:bg-white/8 sm:block"
+              className="hidden rounded-lg border border-white/15 px-4 py-2 text-sm font-semibold text-[#d7d0c2] transition-colors hover:bg-white/8 sm:block"
             >
               Custom motion
             </button>
           </div>
 
-          <div className="grid gap-px border border-line bg-line md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-px overflow-hidden rounded-2xl border border-line bg-line shadow-[var(--shadow-card)] md:grid-cols-2 lg:grid-cols-3">
             {FEATURED_DEBATES.map((debate, index) => (
               <article
                 key={debate.id}
@@ -400,7 +399,7 @@ export default function Home() {
               >
                 <div className="mb-4 flex items-center justify-between gap-2">
                   <span className="dossier-index">
-                    {String(index + 1).padStart(2, "0")} —{" "}
+                    {String(index + 1).padStart(2, "0")} ·{" "}
                     {debate.tags.join(" / ")}
                   </span>
                   <span
@@ -420,13 +419,13 @@ export default function Home() {
                 <div className="mt-6 flex gap-2 border-t border-line pt-4">
                   <button
                     onClick={() => handleStartDebate(debate.id)}
-                    className="flex-1 bg-cream px-3 py-2 text-sm font-semibold text-ink transition-colors hover:bg-white"
+                    className="flex-1 rounded-lg bg-cream px-3 py-2 text-sm font-semibold text-ink transition-colors hover:bg-white"
                   >
                     Use this motion
                   </button>
                   <Link
                     href="/debate/join"
-                    className="border border-line px-3 py-2 text-sm font-semibold text-[#c7c0b3] transition-colors hover:bg-white/8"
+                    className="rounded-lg border border-line px-3 py-2 text-sm font-semibold text-[#c7c0b3] transition-colors hover:bg-white/8"
                   >
                     Join
                   </Link>
@@ -447,7 +446,7 @@ export default function Home() {
               </div>
               <Link
                 href="/faq"
-                className="hidden border border-white/15 px-4 py-2 text-sm font-semibold text-[#d7d0c2] transition-colors hover:bg-white/8 sm:block"
+                className="hidden rounded-lg border border-white/15 px-4 py-2 text-sm font-semibold text-[#d7d0c2] transition-colors hover:bg-white/8 sm:block"
               >
                 All FAQs
               </Link>
@@ -486,13 +485,13 @@ export default function Home() {
         <div className="flex gap-2">
           <button
             onClick={() => handleStartDebate()}
-            className="flex-1 bg-accent px-4 py-3 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong"
+            className="flex-1 rounded-lg bg-accent px-4 py-3 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong"
           >
             Start a debate
           </button>
           <Link
             href="/debate/join"
-            className="border border-line-strong px-4 py-3 text-sm font-semibold text-cream transition-colors hover:bg-white/5"
+            className="rounded-lg border border-line-strong px-4 py-3 text-sm font-semibold text-cream transition-colors hover:bg-white/5"
           >
             Join
           </Link>

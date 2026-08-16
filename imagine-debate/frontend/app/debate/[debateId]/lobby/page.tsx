@@ -43,18 +43,35 @@ interface DebateStartedPayload {
 
 type LobbyStage = "waiting" | "opponent-joined" | "countdown";
 
+// The backend sleeps after periods of inactivity (Render free tier) and can
+// take up to a minute to wake up on the first request. The socket's own
+// per-attempt timeout is shorter than that, so we give the overall handshake
+// this much wall-clock time before showing a timeout screen instead of
+// leaving the user on a spinner indefinitely.
+const CONNECT_OVERALL_TIMEOUT_MS = 60000;
+
 export default function DebateLobby() {
   const params = useParams();
   const router = useRouter();
   const debateId = params.debateId as string;
 
   const socketRef = useRef<Socket | null>(null);
+  const connectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadingRef = useRef(true);
+  const everConnectedRef = useRef(false);
 
   const [players, setPlayers] = useState<Player[]>([]);
   const [stage, setStage] = useState<LobbyStage>("waiting");
   const [countdown, setCountdown] = useState(3);
   const [loading, setLoading] = useState(true);
+  const [loadingHint, setLoadingHint] = useState("");
   const [error, setError] = useState("");
+  const [isTimeout, setIsTimeout] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
+
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
 
   const [timeElapsed, setTimeElapsed] = useState(0);
   const [iAmReady, setIAmReady] = useState(false);
@@ -80,6 +97,9 @@ export default function DebateLobby() {
       setLoading(true);
       setError("");
       setReadyError("");
+      setLoadingHint("");
+      setIsTimeout(false);
+      everConnectedRef.current = false;
 
       const {
         data: { session },
@@ -101,22 +121,48 @@ export default function DebateLobby() {
         auth: { token: session.access_token },
         transports: ["websocket", "polling"],
         reconnection: true,
-        reconnectionAttempts: 5,
+        reconnectionAttempts: 8,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
+        // Longer than the default 20s — the backend can be asleep (Render
+        // free tier) and take a while to wake up and answer the handshake.
+        timeout: 45000,
       });
 
       socketRef.current = socket;
 
+      const overallConnectTimer = setTimeout(() => {
+        if (!cancelled && loadingRef.current) {
+          setError(
+            "We couldn't reach the debate server. If it's been idle for a while it can take up to a minute to wake back up."
+          );
+          setIsTimeout(true);
+          setLoading(false);
+        }
+      }, CONNECT_OVERALL_TIMEOUT_MS);
+
+      connectTimerRef.current = overallConnectTimer;
+
       socket.on("connect", () => {
         console.log("✅ Lobby socket connected:", socket.id);
+        everConnectedRef.current = true;
+        setLoadingHint("");
         socket.emit("join_debate", { debateId });
       });
 
+      // A single connect_error isn't fatal — socket.io keeps retrying in the
+      // background (reconnection: true above), and the first attempt
+      // commonly fails while a sleeping backend wakes up. Only nudge the
+      // loading copy; the overall timer and reconnect_failed below handle
+      // genuine failure.
       socket.on("connect_error", (err) => {
         console.warn("❌ Lobby socket connection error:", err.message);
-        setError(err.message || "Could not connect to debate server.");
-        setLoading(false);
+
+        if (loadingRef.current) {
+          setLoadingHint(
+            "Still connecting — this can take up to a minute if the server was asleep."
+          );
+        }
       });
 
       socket.on("lobby_state", (data: LobbyStatePayload) => {
@@ -253,7 +299,14 @@ export default function DebateLobby() {
       });
 
       socket.io.on("reconnect_failed", () => {
-        setError("Failed to reconnect to debate server.");
+        if (connectTimerRef.current) clearTimeout(connectTimerRef.current);
+
+        setError(
+          everConnectedRef.current
+            ? "Lost connection to the debate server. Please refresh."
+            : "We couldn't reach the debate server. It may still be waking up — try again in a moment."
+        );
+        setIsTimeout(true);
         setLoading(false);
       });
     }
@@ -263,10 +316,12 @@ export default function DebateLobby() {
     return () => {
       cancelled = true;
 
+      if (connectTimerRef.current) clearTimeout(connectTimerRef.current);
+
       socketRef.current?.disconnect();
       socketRef.current = null;
     };
-  }, [debateId, isValidDebateId]);
+  }, [debateId, isValidDebateId, retryKey]);
 
   useEffect(() => {
     if (stage !== "countdown") return;
@@ -304,6 +359,19 @@ export default function DebateLobby() {
       debateId,
       side,
     });
+  };
+
+  // Clicking a side you've already picked reverts to neutral — the escape
+  // hatch when both players end up on the same side without either of them
+  // leaving the lobby.
+  const handleUnchooseSide = () => {
+    if (!socketRef.current) return;
+
+    setReadyError("");
+    setMySide(null);
+    setIAmReady(false);
+
+    socketRef.current.emit("unchoose_side", { debateId });
   };
 
   const handleReady = () => {
@@ -349,8 +417,45 @@ export default function DebateLobby() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-ink">
+      <div className="flex flex-col items-center justify-center gap-4 min-h-screen bg-ink p-6 text-center">
         <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+        {loadingHint && (
+          <p className="text-muted-2/70 text-xs max-w-xs">{loadingHint}</p>
+        )}
+      </div>
+    );
+  }
+
+  if (error && isTimeout) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-ink p-6">
+        <div className="text-center max-w-sm">
+          <p className="eyebrow mb-4 justify-center text-amber-300">
+            Taking longer than expected
+          </p>
+
+          <h2 className="font-serif text-2xl text-[#fffaf0] mb-3">
+            Still trying to reach the server
+          </h2>
+
+          <p className="text-muted text-sm leading-relaxed mb-8">{error}</p>
+
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={() => setRetryKey((k) => k + 1)}
+              className="rounded-lg px-6 py-3 bg-accent hover:bg-accent-strong text-[#0d1117] font-semibold transition-colors"
+            >
+              Try again
+            </button>
+
+            <button
+              onClick={() => router.push("/dashboard")}
+              className="rounded-lg px-6 py-3 bg-black/10 hover:bg-white/8 border border-line text-muted hover:text-cream text-sm font-medium transition-colors"
+            >
+              Go to Dashboard
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -363,7 +468,7 @@ export default function DebateLobby() {
 
           <button
             onClick={() => router.push("/dashboard")}
-            className="px-6 py-3 bg-accent hover:bg-accent-strong text-[#0d1117] font-semibold transition-colors"
+            className="rounded-lg px-6 py-3 bg-accent hover:bg-accent-strong text-[#0d1117] font-semibold transition-colors"
           >
             Go to Dashboard
           </button>
@@ -380,7 +485,7 @@ export default function DebateLobby() {
     <div className="min-h-screen bg-ink flex items-center justify-center p-6">
       <div className="max-w-2xl w-full">
         {stage === "waiting" && (
-          <div className="border-t-2 border-accent bg-surface p-8 text-center sm:p-12">
+          <div className="card-panel border-t-2 border-t-accent p-8 text-center sm:p-12">
             <div className="mb-8">
               <div className="relative w-16 h-16 mx-auto">
                 <div className="absolute inset-0 border-4 border-transparent border-t-accent border-r-accent rounded-full animate-spin" />
@@ -401,7 +506,7 @@ export default function DebateLobby() {
               opponent.
             </p>
 
-            <div className="border border-line bg-black/20 p-8 mb-8">
+            <div className="rounded-2xl border border-line bg-black/20 p-8 mb-8">
               <p className="dossier-index uppercase mb-3">Room code</p>
 
               <div className="text-6xl font-semibold text-cream font-mono tracking-[0.25em] mb-5">
@@ -410,7 +515,7 @@ export default function DebateLobby() {
 
               <button
                 onClick={() => navigator.clipboard.writeText(debateCode)}
-                className="px-5 py-2 bg-accent hover:bg-accent-strong text-[#0d1117] text-sm font-semibold transition-colors"
+                className="rounded-lg px-5 py-2 bg-accent hover:bg-accent-strong text-[#0d1117] text-sm font-semibold transition-colors"
               >
                 Copy code
               </button>
@@ -422,7 +527,7 @@ export default function DebateLobby() {
 
             <button
               onClick={handleCancel}
-              className="px-6 py-3 bg-black/10 hover:bg-white/8 border border-line text-muted hover:text-cream text-sm font-medium transition-colors"
+              className="rounded-lg px-6 py-3 bg-black/10 hover:bg-white/8 border border-line text-muted hover:text-cream text-sm font-medium transition-colors"
             >
               Cancel
             </button>
@@ -430,7 +535,7 @@ export default function DebateLobby() {
         )}
 
         {stage === "opponent-joined" && (
-          <div className="border-t-2 border-accent bg-surface p-8 text-center sm:p-10">
+          <div className="card-panel border-t-2 border-t-accent p-8 text-center sm:p-10">
             <p className="eyebrow mb-4 justify-center">Opponent joined</p>
 
             <h2 className="font-serif text-2xl text-[#fffaf0] mb-1">
@@ -452,9 +557,16 @@ export default function DebateLobby() {
                   return (
                     <button
                       key={side}
-                      onClick={() => !isOpponentSide && handleChooseSide(side)}
+                      onClick={() => {
+                        if (isOpponentSide) return;
+                        if (isSelected) {
+                          handleUnchooseSide();
+                        } else {
+                          handleChooseSide(side);
+                        }
+                      }}
                       disabled={isOpponentSide}
-                      className={`relative py-5 px-4 border text-sm font-semibold transition-colors ${
+                      className={`relative rounded-xl py-5 px-4 border text-sm font-semibold transition-colors ${
                         isOpponentSide
                           ? "border-line bg-black/10 text-muted-2/40 cursor-not-allowed"
                           : isSelected
@@ -474,7 +586,7 @@ export default function DebateLobby() {
 
                       {isSelected && (
                         <span className="absolute top-2 right-2 text-[10px] font-normal">
-                          you
+                          tap to undo
                         </span>
                       )}
                     </button>
@@ -483,7 +595,7 @@ export default function DebateLobby() {
               </div>
             </div>
 
-            <div className="bg-black/10 p-4 mb-6 text-left border border-line">
+            <div className="rounded-xl bg-black/10 p-4 mb-6 text-left border border-line">
               <h3 className="dossier-index uppercase mb-3">Players</h3>
 
               <div className="space-y-2.5">
@@ -496,7 +608,7 @@ export default function DebateLobby() {
 
                       {p.side && (
                         <span
-                          className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 ${
+                          className={`rounded-full text-[10px] font-semibold uppercase px-1.5 py-0.5 ${
                             p.side === "for"
                               ? "text-emerald-400"
                               : "text-rose-400"
@@ -508,7 +620,7 @@ export default function DebateLobby() {
                     </div>
 
                     <span
-                      className={`text-xs font-medium px-2 py-1 border ${
+                      className={`rounded-full text-xs font-medium px-2 py-1 border ${
                         p.ready
                           ? "border-emerald-400/30 text-emerald-300"
                           : "border-line text-muted-2"
@@ -529,14 +641,14 @@ export default function DebateLobby() {
               <button
                 onClick={handleReady}
                 disabled={!mySide}
-                className="w-full px-8 py-4 text-[#0d1117] font-bold text-base transition-colors mb-3 bg-accent hover:bg-accent-strong disabled:bg-white/10 disabled:text-white/30 disabled:cursor-not-allowed"
+                className="w-full rounded-lg px-8 py-4 text-[#0d1117] font-bold text-base transition-colors mb-3 bg-accent hover:bg-accent-strong disabled:bg-white/10 disabled:text-white/30 disabled:cursor-not-allowed"
               >
                 {mySide ? "I'm ready" : "Choose a side first"}
               </button>
             ) : (
               <button
                 onClick={handleUnready}
-                className="w-full px-8 py-4 text-[#0d1117] font-bold text-base transition-colors mb-3 bg-amber-400 hover:bg-amber-300"
+                className="w-full rounded-lg px-8 py-4 text-[#0d1117] font-bold text-base transition-colors mb-3 bg-amber-400 hover:bg-amber-300"
               >
                 Waiting for opponent… tap to unready
               </button>
@@ -544,7 +656,7 @@ export default function DebateLobby() {
 
             <button
               onClick={handleCancel}
-              className="w-full px-6 py-3 bg-black/10 hover:bg-white/8 border border-line text-muted hover:text-cream text-sm font-medium transition-colors"
+              className="w-full rounded-lg px-6 py-3 bg-black/10 hover:bg-white/8 border border-line text-muted hover:text-cream text-sm font-medium transition-colors"
             >
               Cancel
             </button>
@@ -552,7 +664,7 @@ export default function DebateLobby() {
         )}
 
         {stage === "countdown" && (
-          <div className="border-t-2 border-accent bg-surface p-12 text-center">
+          <div className="card-panel border-t-2 border-t-accent p-12 text-center">
             <p className="eyebrow mb-8 justify-center">Debate starting in</p>
 
             <div className="font-serif text-9xl text-cream mb-12 tabular-nums">

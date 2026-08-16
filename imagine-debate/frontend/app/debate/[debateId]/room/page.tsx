@@ -5,21 +5,9 @@ import { useParams, useRouter } from "next/navigation";
 import { io, Socket } from "socket.io-client";
 import { supabase } from "@/supabaseClient";
 import { getSocketUrl } from "@/lib/socketUrl";
-
-interface Message {
-  id?: number;
-  debateId?: number;
-  userId?: string;
-  username?: string;
-  side?: "for" | "against" | null;
-  argumentPart?: string;
-  argumentPartLabel?: string;
-  stageIndex?: number;
-  turnIndex?: number;
-  content: string;
-  timestamp?: string;
-  system?: boolean;
-}
+import { fetchMessageHistory, type Message } from "@/lib/messageHistory";
+import { readFunctionError } from "@/lib/functionInvoke";
+import { trackEvent } from "@/lib/analytics";
 
 interface DebateStage {
   argumentPart: string;
@@ -74,48 +62,21 @@ interface DebateStartedPayload {
   turnIndex?: number;
 }
 
-type PageState = "loading" | "error" | "debate" | "result";
+type PageState = "loading" | "error" | "timeout" | "debate" | "result";
 
 const GRACE_PERIOD_MAX = 15;
-const MAX_MESSAGE_WORDS = 300;
+const MAX_MESSAGE_WORDS = 100;
 const DRAFT_SYNC_DEBOUNCE_MS = 500;
+
+// The backend sleeps after periods of inactivity (Render free tier) and can
+// take up to a minute to wake up on the first request. The socket's own
+// per-attempt timeout is shorter than that, so we give the overall handshake
+// this much wall-clock time before showing the user a timeout screen instead
+// of leaving them on a spinner indefinitely.
+const CONNECT_OVERALL_TIMEOUT_MS = 60000;
 
 function countWords(value: string) {
   return value.trim().split(/\s+/).filter(Boolean).length;
-}
-
-// Loads the full transcript so far. Used on reconnect (page refresh, tab
-// resume on mobile, etc.) so a player never loses the debate history that
-// scrolled past before their browser dropped the socket connection. RLS
-// scopes this to debate participants only, so it's safe to call with the
-// public client.
-async function fetchMessageHistory(debateId: string): Promise<Message[]> {
-  const numericDebateId = Number(debateId);
-  if (!Number.isSafeInteger(numericDebateId)) return [];
-
-  const { data, error } = await supabase
-    .from("messages")
-    .select(
-      "id, debate_id, sender_id, sender_username, side, argument_part, stage_index, turn_index, content, created_at"
-    )
-    .eq("debate_id", numericDebateId)
-    .order("turn_index", { ascending: true })
-    .order("created_at", { ascending: true });
-
-  if (error || !data) return [];
-
-  return data.map((row) => ({
-    id: row.id,
-    debateId: row.debate_id,
-    userId: row.sender_id,
-    username: row.sender_username,
-    side: row.side,
-    argumentPart: row.argument_part,
-    stageIndex: row.stage_index,
-    turnIndex: row.turn_index,
-    content: row.content,
-    timestamp: row.created_at,
-  }));
 }
 
 export default function DebateRoom() {
@@ -129,9 +90,19 @@ export default function DebateRoom() {
   const userIdRef = useRef<string | null>(null);
   const joinedRef = useRef(false);
   const draftTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [pageState, setPageState] = useState<PageState>("loading");
   const [errorMessage, setErrorMessage] = useState("");
+  const [loadingHint, setLoadingHint] = useState("");
+  const [retryKey, setRetryKey] = useState(0);
+
+  const pageStateRef = useRef<PageState>("loading");
+  const everConnectedRef = useRef(false);
+
+  useEffect(() => {
+    pageStateRef.current = pageState;
+  }, [pageState]);
 
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [debateName, setDebateName] = useState("");
@@ -162,6 +133,12 @@ export default function DebateRoom() {
   const [totalStages, setTotalStages] = useState<number | null>(null);
   const [debateCompleted, setDebateCompleted] = useState(false);
 
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState("");
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportError, setReportError] = useState("");
+  const [reportSubmitted, setReportSubmitted] = useState(false);
+
   const addSystemMessage = useCallback((content: string) => {
     setMessages((prev) => [...prev, { system: true, content }]);
   }, []);
@@ -184,6 +161,8 @@ export default function DebateRoom() {
     async function init() {
       setPageState("loading");
       setErrorMessage("");
+      setLoadingHint("");
+      everConnectedRef.current = false;
 
       const {
         data: { session },
@@ -220,21 +199,46 @@ export default function DebateRoom() {
         auth: { token: session.access_token },
         transports: ["websocket", "polling"],
         reconnection: true,
-        reconnectionAttempts: 5,
+        reconnectionAttempts: 8,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
+        // Longer than the default 20s — the backend can be asleep (Render
+        // free tier) and take a while to wake up and answer the handshake.
+        timeout: 45000,
       });
 
       socketRef.current = socket;
 
+      const overallConnectTimer = setTimeout(() => {
+        if (!cancelled && pageStateRef.current === "loading") {
+          setErrorMessage(
+            "We couldn't reach the debate server. If it's been idle for a while it can take up to a minute to wake back up."
+          );
+          setPageState("timeout");
+        }
+      }, CONNECT_OVERALL_TIMEOUT_MS);
+
       socket.on("connect", () => {
+        everConnectedRef.current = true;
         joinedRef.current = true;
+        setLoadingHint("");
         socket.emit("join_debate", { debateId });
       });
 
+      // A single connect_error isn't fatal on its own — socket.io keeps
+      // retrying in the background (reconnection: true above), and the
+      // first attempt commonly fails while the sleeping backend wakes up.
+      // Only nudge the loading copy so the wait doesn't look broken; the
+      // overall timer above and reconnect_failed below handle genuine
+      // failure.
       socket.on("connect_error", (err) => {
-        setErrorMessage(err.message || "Could not connect to debate server.");
-        setPageState("error");
+        console.warn("Socket connect_error:", err.message);
+
+        if (pageStateRef.current === "loading") {
+          setLoadingHint(
+            "Still connecting — this can take up to a minute if the server was asleep."
+          );
+        }
       });
 
       socket.on("debate_started", (payload: DebateStartedPayload) => {
@@ -438,6 +442,8 @@ export default function DebateRoom() {
           setArgumentPartLabel(null);
           setArgumentPart(null);
 
+          trackEvent("debate_completed");
+
           addSystemMessage(
             data.message || "Debate completed. Judging can now begin."
           );
@@ -460,9 +466,17 @@ export default function DebateRoom() {
       });
 
       socket.io.on("reconnect_failed", () => {
-        setErrorMessage("Lost connection to the debate server. Please refresh.");
-        setPageState("error");
+        clearTimeout(overallConnectTimer);
+
+        setErrorMessage(
+          everConnectedRef.current
+            ? "Lost connection to the debate server. Please refresh."
+            : "We couldn't reach the debate server. It may still be waking up — try again in a moment."
+        );
+        setPageState("timeout");
       });
+
+      connectTimerRef.current = overallConnectTimer;
     }
 
     init();
@@ -472,11 +486,12 @@ export default function DebateRoom() {
       joinedRef.current = false;
 
       if (draftTimeoutRef.current) clearTimeout(draftTimeoutRef.current);
+      if (connectTimerRef.current) clearTimeout(connectTimerRef.current);
 
       socketRef.current?.disconnect();
       socketRef.current = null;
     };
-  }, [debateId, router, addSystemMessage]);
+  }, [debateId, router, addSystemMessage, retryKey]);
 
   const isMyTurn = currentTurnUserId === myUserId;
 
@@ -556,14 +571,61 @@ export default function DebateRoom() {
     router.push("/dashboard");
   };
 
+  const handleSubmitReport = async () => {
+    const trimmed = reportReason.trim();
+
+    if (trimmed.length < 10) {
+      setReportError("Please describe the issue in at least 10 characters.");
+      return;
+    }
+
+    setReportSubmitting(true);
+    setReportError("");
+
+    try {
+      const { data, error } = await supabase.functions.invoke("submit-report", {
+        body: { debateId, reason: trimmed },
+      });
+
+      if (error) {
+        setReportError(await readFunctionError(error));
+        return;
+      }
+
+      if (!data?.success) {
+        setReportError(data?.error || "Could not submit the report.");
+        return;
+      }
+
+      trackEvent("report_submitted");
+      setReportSubmitted(true);
+      setReportReason("");
+    } catch (err) {
+      setReportError(
+        err instanceof Error ? err.message : "Could not submit the report."
+      );
+    } finally {
+      setReportSubmitting(false);
+    }
+  };
+
+  const closeReportDialog = () => {
+    setReportOpen(false);
+    setReportError("");
+    setReportSubmitted(false);
+  };
+
   if (!/^\d{4}$/.test(debateId)) return null;
 
   if (pageState === "loading") {
     return (
-      <div className="flex h-dvh items-center justify-center bg-ink">
-        <div className="flex flex-col items-center gap-4">
+      <div className="flex h-dvh items-center justify-center bg-ink p-6">
+        <div className="card-panel flex flex-col items-center gap-4 text-center p-8 sm:p-10">
           <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
           <p className="text-muted-2 text-sm">Joining debate room…</p>
+          {loadingHint && (
+            <p className="text-muted-2/70 text-xs max-w-xs">{loadingHint}</p>
+          )}
         </div>
       </div>
     );
@@ -572,15 +634,52 @@ export default function DebateRoom() {
   if (pageState === "error") {
     return (
       <div className="flex h-dvh items-center justify-center bg-ink p-6">
-        <div className="text-center max-w-sm">
+        <div className="card-panel text-center max-w-sm p-8 sm:p-10">
           <p className="text-rose-400 text-lg mb-6">{errorMessage}</p>
 
           <button
             onClick={() => router.push("/dashboard")}
-            className="px-6 py-3 bg-accent hover:bg-accent-strong text-[#0d1117] font-semibold transition-colors"
+            className="rounded-lg px-6 py-3 bg-accent hover:bg-accent-strong text-[#0d1117] font-semibold transition-colors"
           >
             Go to Dashboard
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (pageState === "timeout") {
+    return (
+      <div className="flex h-dvh items-center justify-center bg-ink p-6">
+        <div className="card-panel text-center max-w-sm p-8 sm:p-10">
+          <p className="eyebrow mb-4 justify-center text-amber-300">
+            Taking longer than expected
+          </p>
+
+          <h1 className="font-serif text-2xl text-[#fffaf0] mb-3">
+            Still trying to reach the server
+          </h1>
+
+          <p className="text-muted text-sm leading-relaxed mb-8">
+            {errorMessage ||
+              "The debate server can take up to a minute to wake up after sitting idle. Give it another try."}
+          </p>
+
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={() => setRetryKey((k) => k + 1)}
+              className="rounded-lg px-6 py-3 bg-accent hover:bg-accent-strong text-[#0d1117] font-semibold transition-colors"
+            >
+              Try again
+            </button>
+
+            <button
+              onClick={() => router.push("/dashboard")}
+              className="rounded-lg px-6 py-3 bg-black/10 hover:bg-white/8 border border-line text-muted hover:text-cream text-sm font-medium transition-colors"
+            >
+              Go to Dashboard
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -591,7 +690,7 @@ export default function DebateRoom() {
 
     return (
       <div className="flex h-dvh items-center justify-center bg-ink p-6">
-        <div className="max-w-md w-full border-t-2 border-accent bg-surface p-8 sm:p-12 text-center shadow-2xl shadow-black/40">
+        <div className="max-w-md w-full card-panel border-t-2 border-t-accent p-8 sm:p-12 text-center">
           {iWon ? (
             <>
               <p className="eyebrow mb-5 justify-center">Debate decided</p>
@@ -630,7 +729,7 @@ export default function DebateRoom() {
 
           <button
             onClick={returnToDashboard}
-            className="w-full px-6 py-3 bg-accent hover:bg-accent-strong text-[#0d1117] font-semibold transition-colors"
+            className="w-full rounded-lg px-6 py-3 bg-accent hover:bg-accent-strong text-[#0d1117] font-semibold transition-colors"
           >
             Return to Dashboard
           </button>
@@ -675,14 +774,87 @@ export default function DebateRoom() {
             </p>
           </div>
 
-          <button
-            onClick={handleLeave}
-            className="flex-none px-3 py-2 text-xs font-medium text-muted hover:text-cream bg-black/20 hover:bg-white/8 border border-line transition-colors sm:text-sm"
-          >
-            Leave
-          </button>
+          <div className="flex flex-none items-center gap-2">
+            <button
+              onClick={() => setReportOpen(true)}
+              className="flex-none rounded-lg px-3 py-2 text-xs font-medium text-muted hover:text-cream bg-black/20 hover:bg-white/8 border border-line transition-colors sm:text-sm"
+            >
+              Report
+            </button>
+
+            <button
+              onClick={handleLeave}
+              className="flex-none rounded-lg px-3 py-2 text-xs font-medium text-muted hover:text-cream bg-black/20 hover:bg-white/8 border border-line transition-colors sm:text-sm"
+            >
+              Leave
+            </button>
+          </div>
         </div>
       </header>
+
+      {reportOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
+          <div className="w-full max-w-sm card-panel border-t-2 border-t-accent p-6">
+            {reportSubmitted ? (
+              <>
+                <p className="eyebrow mb-3">Report sent</p>
+                <h2 className="font-serif text-xl text-[#fffaf0] mb-3">
+                  Thanks — we&apos;ll take a look
+                </h2>
+                <p className="text-muted text-sm leading-relaxed mb-6">
+                  Your report has been recorded and sent to the site owner.
+                </p>
+                <button
+                  onClick={closeReportDialog}
+                  className="w-full rounded-lg px-5 py-3 bg-accent hover:bg-accent-strong text-[#0d1117] text-sm font-semibold transition-colors"
+                >
+                  Close
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="eyebrow mb-3">Report this debate</p>
+                <h2 className="font-serif text-xl text-[#fffaf0] mb-3">
+                  What went wrong?
+                </h2>
+                <p className="text-muted text-sm leading-relaxed mb-4">
+                  Describe the issue — abusive language, harassment, cheating,
+                  anything else. This goes straight to the site owner.
+                </p>
+
+                <textarea
+                  value={reportReason}
+                  onChange={(e) => setReportReason(e.target.value)}
+                  placeholder="What happened?"
+                  rows={4}
+                  className="w-full resize-none rounded-xl border border-line bg-black/20 text-cream px-4 py-3 text-sm leading-relaxed placeholder:text-muted-2/60 focus:outline-none focus:border-accent transition-colors mb-3"
+                />
+
+                {reportError && (
+                  <p className="text-rose-400 text-sm mb-3">{reportError}</p>
+                )}
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={closeReportDialog}
+                    disabled={reportSubmitting}
+                    className="flex-1 rounded-lg px-5 py-3 bg-black/20 hover:bg-white/8 border border-line text-muted hover:text-cream text-sm font-medium transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSubmitReport}
+                    disabled={reportSubmitting || reportReason.trim().length < 10}
+                    className="flex-1 rounded-lg px-5 py-3 bg-accent hover:bg-accent-strong disabled:bg-white/10 disabled:text-white/30 disabled:cursor-not-allowed text-[#0d1117] text-sm font-semibold transition-colors"
+                  >
+                    {reportSubmitting ? "Sending…" : "Submit report"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="flex-none bg-surface/80 border-b border-line px-4 py-2.5 sm:px-6 sm:py-3">
         <div className="max-w-3xl mx-auto">
@@ -741,9 +913,9 @@ export default function DebateRoom() {
             </p>
           </div>
 
-          <div className="w-full h-1 bg-black/30 overflow-hidden">
+          <div className="w-full h-1.5 rounded-full bg-black/30 overflow-hidden">
             <div
-              className={`h-full transition-all duration-1000 ease-linear ${
+              className={`h-full rounded-full transition-all duration-1000 ease-linear ${
                 isUrgent ? "bg-rose-400" : "bg-accent"
               }`}
               style={{ width: `${debateCompleted ? 0 : turnProgress}%` }}
@@ -753,8 +925,8 @@ export default function DebateRoom() {
       </div>
 
       {gracePeriod && (
-        <div className="flex-none bg-amber-400/10 border-b border-amber-400/25 px-4 py-3 sm:px-6 sm:py-4">
-          <div className="max-w-3xl mx-auto">
+        <div className="flex-none px-4 py-2 sm:px-6">
+          <div className="max-w-3xl mx-auto rounded-xl bg-amber-400/10 border border-amber-400/25 px-4 py-3 sm:py-4">
             <div className="flex items-center justify-between mb-2">
               <p className="text-amber-300 font-semibold text-sm sm:text-base">
                 {gracePeriod.username} disconnected
@@ -771,9 +943,9 @@ export default function DebateRoom() {
               </span>
             </div>
 
-            <div className="w-full h-1 bg-black/30 overflow-hidden">
+            <div className="w-full h-1.5 rounded-full bg-black/30 overflow-hidden">
               <div
-                className="h-full bg-amber-400 transition-all duration-1000 ease-linear"
+                className="h-full rounded-full bg-amber-400 transition-all duration-1000 ease-linear"
                 style={{
                   width: `${(gracePeriod.secondsLeft / GRACE_PERIOD_MAX) * 100}%`,
                 }}
@@ -808,10 +980,10 @@ export default function DebateRoom() {
               }`}
             >
               <div
-                className={`max-w-[85%] sm:max-w-xl border px-4 py-2.5 sm:px-5 sm:py-3 ${
+                className={`max-w-[85%] sm:max-w-xl rounded-2xl border px-4 py-2.5 sm:px-5 sm:py-3 ${
                   msg.userId === myUserId
-                    ? "bg-accent/10 border-accent/30 text-cream"
-                    : "bg-surface border-line text-[#e8e1d2]"
+                    ? "rounded-br-md bg-accent/10 border-accent/30 text-cream"
+                    : "rounded-bl-md bg-surface border-line text-[#e8e1d2]"
                 }`}
               >
                 <div className="flex items-baseline gap-2 mb-1">
@@ -881,7 +1053,7 @@ export default function DebateRoom() {
               }
               disabled={!isMyTurn || debateCompleted}
               rows={3}
-              className={`flex-1 resize-none border bg-black/20 text-cream px-4 py-3 text-sm leading-relaxed placeholder:text-muted-2/60 focus:outline-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed sm:rows-2 ${
+              className={`flex-1 resize-none rounded-xl border bg-black/20 text-cream px-4 py-3 text-sm leading-relaxed placeholder:text-muted-2/60 focus:outline-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed sm:rows-2 ${
                 isOverWordLimit ? "border-rose-400/60" : "border-line focus:border-accent"
               }`}
             />
@@ -892,7 +1064,7 @@ export default function DebateRoom() {
                 disabled={
                   !input.trim() || !isMyTurn || debateCompleted || isOverWordLimit
                 }
-                className="flex-1 bg-accent hover:bg-accent-strong disabled:bg-white/10 disabled:text-white/30 disabled:cursor-not-allowed text-[#0d1117] px-6 py-3 text-sm font-semibold transition-colors sm:flex-none"
+                className="flex-1 rounded-lg bg-accent hover:bg-accent-strong disabled:bg-white/10 disabled:text-white/30 disabled:cursor-not-allowed text-[#0d1117] px-6 py-3 text-sm font-semibold transition-colors sm:flex-none"
               >
                 Send
               </button>
@@ -900,7 +1072,7 @@ export default function DebateRoom() {
               <button
                 onClick={passTurn}
                 disabled={!isMyTurn || debateCompleted}
-                className="flex-1 bg-black/20 hover:bg-white/8 disabled:bg-white/5 disabled:text-white/20 disabled:cursor-not-allowed text-cream border border-line px-5 py-3 text-sm font-semibold transition-colors sm:flex-none"
+                className="flex-1 rounded-lg bg-black/20 hover:bg-white/8 disabled:bg-white/5 disabled:text-white/20 disabled:cursor-not-allowed text-cream border border-line px-5 py-3 text-sm font-semibold transition-colors sm:flex-none"
               >
                 Pass
               </button>

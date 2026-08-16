@@ -3,9 +3,21 @@ import express from "express";
 import cors from "cors";
 import { Server, Socket } from "socket.io";
 import dotenv from "dotenv";
+import {
+  RegExpMatcher,
+  englishDataset,
+  englishRecommendedTransformers,
+} from "obscenity";
 import { supabase } from "./supabase/supabaseClient.js";
 
 dotenv.config();
+
+// Built once at module load — matcher construction isn't free, and the
+// word list doesn't change at runtime.
+const profanityMatcher = new RegExpMatcher({
+  ...englishDataset.build(),
+  ...englishRecommendedTransformers,
+});
 
 const FRONTEND_ORIGINS = (process.env.FRONTEND_URL || "http://localhost:3000")
   .split(",")
@@ -20,7 +32,7 @@ const MAX_PLAYERS = 2;
 const GRACE_PERIOD_SECONDS = 15;
 const DISCONNECT_NAVIGATION_DELAY_MS = 2500;
 const DEFAULT_TURN_SECONDS = 120;
-const MAX_MESSAGE_WORDS = 300;
+const MAX_MESSAGE_WORDS = 100;
 
 const app = express();
 
@@ -115,6 +127,7 @@ interface DebateRoom {
   sides: Record<string, Side>;
   debateName: string;
   timePerTurn: number;
+  ranked: boolean;
 
   turnOrder?: [string, string];
   currentTurn?: string;
@@ -138,6 +151,7 @@ interface DebateMeta {
   timePerTurn: number;
   status: string;
   appraisalStatus: string | null;
+  ranked: boolean;
 }
 
 const debateMetaCache: Record<string, DebateMeta> = {};
@@ -227,6 +241,7 @@ function getRoom(debateId: string): DebateRoom {
     sides: {},
     debateName: debateId,
     timePerTurn: DEFAULT_TURN_SECONDS,
+    ranked: true,
     currentStageIndex: 0,
     currentSpeakerIndex: 0,
     turnIndex: 0,
@@ -245,7 +260,8 @@ async function applyDebateResult(
   forPlayerId: string,
   againstPlayerId: string,
   winningSide: Side | "draw",
-  endedReason: "ai_judged" | "forfeit_disconnect" | "forfeit_left"
+  endedReason: "ai_judged" | "forfeit_disconnect" | "forfeit_left",
+  ranked: boolean
 ): Promise<void> {
   const { error } = await supabase.rpc("apply_debate_result", {
     p_debate_id: debateId,
@@ -253,6 +269,7 @@ async function applyDebateResult(
     p_against_player_id: againstPlayerId,
     p_winning_side: winningSide,
     p_ended_reason: endedReason,
+    p_ranked: ranked,
   });
 
   if (error) {
@@ -356,6 +373,24 @@ function buildTurnPayload(debateId: string, room: DebateRoom) {
   };
 }
 
+// Kicks off AI judging the moment a debate finishes normally, instead of
+// waiting for a participant to happen to open the outcome page. Fire-and-
+// forget by design: judge-debate is idempotent (it checks appraisal_status
+// before doing any work), and a failure here should never affect the
+// socket server or block the room from tearing down.
+async function triggerJudging(debateId: string): Promise<void> {
+  const { error } = await supabase.functions.invoke("judge-debate", {
+    body: { debateId },
+  });
+
+  if (error) {
+    console.error(
+      `❌ judge-debate invoke failed for debate ${debateId}:`,
+      error.message
+    );
+  }
+}
+
 // SECTION: Queue Completed Debate for AI Appraisal
 async function emitDebateCompleted(debateId: string): Promise<void> {
   const room = rooms[debateId];
@@ -406,6 +441,13 @@ async function emitDebateCompleted(debateId: string): Promise<void> {
       message: "Debate completed. AI appraisal is now pending.",
       pipelineVersion: "010707",
     });
+
+    void triggerJudging(debateId).catch((err) => {
+      console.error(
+        `⚠️ Background judging trigger failed for debate ${debateId}:`,
+        err
+      );
+    });
   } catch (error) {
     const message =
       error instanceof Error
@@ -438,7 +480,7 @@ async function fetchDebateMeta(
 
   const { data, error } = await supabase
     .from("debates")
-    .select("topic, time_per_turn, status, appraisal_status")
+    .select("topic, time_per_turn, status, appraisal_status, ranked")
     .eq("id", debateId)
     .maybeSingle();
 
@@ -459,6 +501,10 @@ async function fetchDebateMeta(
       typeof data.appraisal_status === "string"
         ? data.appraisal_status
         : null,
+    // Defensive default: treat anything but an explicit `false` as ranked,
+    // matching the appraisalStatus style above — a debate row from before
+    // this column existed should behave like a ranked debate always did.
+    ranked: data.ranked !== false,
   };
 
   debateMetaCache[debateId] = meta;
@@ -757,7 +803,8 @@ function startGracePeriod(debateId: string, disconnectedUserId: string) {
               room.turnOrder[0],
               room.turnOrder[1],
               winnerSide,
-              "forfeit_disconnect"
+              "forfeit_disconnect",
+              room.ranked
             );
           }
         }
@@ -770,7 +817,8 @@ function startGracePeriod(debateId: string, disconnectedUserId: string) {
           room.turnOrder[0],
           room.turnOrder[1],
           "draw",
-          "forfeit_disconnect"
+          "forfeit_disconnect",
+          room.ranked
         );
       }
 
@@ -859,7 +907,8 @@ function handleUserLeft(
             room.turnOrder[0],
             room.turnOrder[1],
             winnerSide,
-            "forfeit_left"
+            "forfeit_left",
+            room.ranked
           );
         }
       }
@@ -952,6 +1001,7 @@ io.on("connection", (socket: Socket) => {
       const room = getRoom(debateId);
       room.debateName = meta.name;
       room.timePerTurn = meta.timePerTurn;
+      room.ranked = meta.ranked;
       room.playerNames[user.id] = user.username;
 
       const connectedPlayersBeforeJoin = getConnectedPlayers(debateId);
@@ -1047,6 +1097,24 @@ io.on("connection", (socket: Socket) => {
     room.readyState[user.id] = false;
 
     console.log(`🎭 ${user.username} chose "${side}" in debate ${debateId}`);
+
+    emitLobbyState(debateId);
+  });
+
+  // Lets a player click their already-chosen side again to revert to
+  // neutral — the escape hatch for "both players picked the same side"
+  // without either of them leaving the lobby.
+  socket.on("unchoose_side", ({ debateId }: { debateId: string }) => {
+    if (!debateId) return;
+
+    const room = rooms[debateId];
+
+    if (!room || room.status !== "waiting") return;
+
+    delete room.sideChoice[user.id];
+    room.readyState[user.id] = false;
+
+    console.log(`🎭 ${user.username} unchose their side in debate ${debateId}`);
 
     emitLobbyState(debateId);
   });
@@ -1208,6 +1276,14 @@ io.on("connection", (socket: Socket) => {
         if (countWords(cleanContent) > MAX_MESSAGE_WORDS) {
           socket.emit("message_error", {
             message: `Messages must be ${MAX_MESSAGE_WORDS} words or fewer.`,
+          });
+          return;
+        }
+
+        if (profanityMatcher.hasMatch(cleanContent)) {
+          socket.emit("message_error", {
+            message:
+              "Your message contains language that isn't allowed here. Please revise it and resend.",
           });
           return;
         }

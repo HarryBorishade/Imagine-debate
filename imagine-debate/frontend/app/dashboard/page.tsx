@@ -13,6 +13,9 @@ interface Debate {
   status: string;
   created_at: string;
   time_per_turn?: number | null;
+  winning_side?: string | null;
+  appraisal_status?: string | null;
+  ended_reason?: string | null;
 }
 
 interface Profile {
@@ -113,7 +116,9 @@ export default function Dashboard() {
       // from history the moment it starts.
       const { data, error } = await supabase
         .from("debates")
-        .select("id, topic, status, created_at, time_per_turn")
+        .select(
+          "id, topic, status, created_at, time_per_turn, winning_side, appraisal_status, ended_reason"
+        )
         .or(
           `created_by.eq.${userId},for_player_id.eq.${userId},against_player_id.eq.${userId}`
         )
@@ -191,19 +196,19 @@ export default function Dashboard() {
           <div className="flex flex-wrap gap-2">
             <Link
               href="/"
-              className="border border-line px-4 py-2 text-sm font-semibold text-[#d7d0c2] transition-colors hover:bg-white/8"
+              className="rounded-lg border border-line px-4 py-2 text-sm font-semibold text-[#d7d0c2] transition-colors hover:bg-white/8"
             >
               Home
             </Link>
             <Link
               href="/settings"
-              className="border border-line px-4 py-2 text-sm font-semibold text-[#d7d0c2] transition-colors hover:bg-white/8"
+              className="rounded-lg border border-line px-4 py-2 text-sm font-semibold text-[#d7d0c2] transition-colors hover:bg-white/8"
             >
               Settings
             </Link>
             <Link
               href="/debate/create"
-              className="bg-cream px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-white"
+              className="rounded-lg bg-cream px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-white"
             >
               New debate
             </Link>
@@ -213,7 +218,7 @@ export default function Dashboard() {
 
       <main className="mx-auto grid max-w-6xl gap-6 px-5 py-8 lg:grid-cols-[1fr_320px]">
         <div className="space-y-6">
-          <section className="border border-line bg-surface">
+          <section className="card-panel overflow-hidden">
             <div className="flex items-center justify-between border-b border-line px-5 py-4">
               <h2 className="font-serif text-lg text-[#fffaf0]">
                 Active debates
@@ -233,7 +238,7 @@ export default function Dashboard() {
                 </p>
                 <Link
                   href="/debate/create"
-                  className="mt-5 inline-flex bg-accent px-4 py-2 text-sm font-semibold text-[#111411] hover:bg-accent-strong"
+                  className="mt-5 inline-flex rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-[#111411] hover:bg-accent-strong"
                 >
                   Start a debate
                 </Link>
@@ -243,7 +248,7 @@ export default function Dashboard() {
             )}
           </section>
 
-          <section className="border border-line bg-surface">
+          <section className="card-panel overflow-hidden">
             <div className="flex flex-col gap-4 border-b border-line px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="font-serif text-lg text-[#fffaf0]">
@@ -254,7 +259,7 @@ export default function Dashboard() {
                 </p>
               </div>
 
-              <div className="inline-flex w-fit border border-line bg-black/10">
+              <div className="inline-flex w-fit overflow-hidden rounded-lg border border-line bg-black/10">
                 {[7, 30].map((range) => (
                   <button
                     key={range}
@@ -286,7 +291,7 @@ export default function Dashboard() {
         </div>
 
         <aside className="space-y-6">
-          <section className="border-t-2 border-accent bg-surface p-5">
+          <section className="rounded-[var(--radius-lg)] border-t-2 border-accent bg-surface p-5 shadow-[var(--shadow-card)]">
             <div className="flex items-center justify-between">
               <h2 className="eyebrow">Rating</h2>
               {winRate !== null && (
@@ -300,7 +305,7 @@ export default function Dashboard() {
               <div className="mt-4 h-10 w-24 animate-pulse bg-white/5" />
             ) : (
               <p className="mt-2 font-serif text-5xl tracking-tight text-[#fffaf0]">
-                {profile?.rating ?? 1000}
+                {profile?.rating ?? 400}
               </p>
             )}
 
@@ -326,12 +331,12 @@ export default function Dashboard() {
             </div>
 
             <p className="mt-4 text-xs leading-5 text-muted-2">
-              Every new debater starts at 1000. Ratings update automatically
+              Every new debater starts at 400. Ratings update automatically
               after each completed debate.
             </p>
           </section>
 
-          <section className="border border-line bg-surface p-5">
+          <section className="card-panel p-5">
             <h2 className="eyebrow">{historyRange}-day summary</h2>
             <div className="mt-5 space-y-3 text-sm">
               <StatRow label="Total debates" value={stats.totalDebates} />
@@ -355,7 +360,7 @@ export default function Dashboard() {
             </div>
           </section>
 
-          <section className="border border-line bg-surface p-5">
+          <section className="card-panel p-5">
             <h2 className="eyebrow">Retention</h2>
             <p className="mt-4 text-sm leading-6 text-muted">
               Debate rows older than 30 days are expected to be deleted from
@@ -374,7 +379,11 @@ function DebateList({ debates }: { debates: Debate[] }) {
       {debates.map((debate) => (
         <Link
           key={debate.id}
-          href={`/debate/${debate.id}/lobby`}
+          href={
+            debate.status === "completed"
+              ? `/debate/${debate.id}/outcome`
+              : `/debate/${debate.id}/lobby`
+          }
           className="block px-5 py-4 hover:bg-white/5"
         >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -385,7 +394,7 @@ function DebateList({ debates }: { debates: Debate[] }) {
                 {debate.time_per_turn ? ` - ${debate.time_per_turn}s turns` : ""}
               </p>
             </div>
-            <StatusPill status={debate.status} />
+            <StatusPill debate={debate} />
           </div>
         </Link>
       ))}
@@ -393,21 +402,37 @@ function DebateList({ debates }: { debates: Debate[] }) {
   );
 }
 
-function StatusPill({ status }: { status: string }) {
-  const style =
-    status === "completed"
-      ? "text-[#c7c0b3]"
-      : status === "active"
-      ? "text-emerald-300"
-      : "text-amber-300";
+function StatusPill({ debate }: { debate: Debate }) {
+  if (debate.status === "completed") {
+    const label = debate.ended_reason?.startsWith("forfeit")
+      ? "forfeit"
+      : debate.winning_side === "draw"
+        ? "draw"
+        : debate.winning_side === "for"
+          ? "for won"
+          : debate.winning_side === "against"
+            ? "against won"
+            : debate.appraisal_status === "processing"
+              ? "judging…"
+              : "awaiting review";
 
-  const label = status === "completed" ? "finished" : status;
+    return (
+      <span className="w-fit rounded-full bg-white/10 px-3 py-1 font-mono text-xs font-semibold uppercase tracking-wide text-[#c7c0b3]">
+        {label}
+      </span>
+    );
+  }
+
+  const style =
+    debate.status === "active"
+      ? "bg-emerald-400/15 text-emerald-300"
+      : "bg-amber-400/15 text-amber-300";
 
   return (
     <span
-      className={`w-fit border-l-2 border-current pl-2 font-mono text-xs font-semibold uppercase tracking-wide ${style}`}
+      className={`w-fit rounded-full px-3 py-1 font-mono text-xs font-semibold uppercase tracking-wide ${style}`}
     >
-      {label}
+      {debate.status}
     </span>
   );
 }

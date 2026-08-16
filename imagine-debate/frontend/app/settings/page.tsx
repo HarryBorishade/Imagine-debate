@@ -26,7 +26,7 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <section className="border-t-2 border-line-strong bg-surface p-5 sm:p-6">
+    <section className="card-panel p-5 sm:p-6">
       <h2 className="font-serif text-lg text-[#fffaf0]">{title}</h2>
       {description && (
         <p className="mt-1 text-sm text-muted-2">{description}</p>
@@ -255,12 +255,6 @@ export default function SettingsPage() {
           <Link href="/" className="font-serif text-lg tracking-tight text-cream">
             Imagine Debate
           </Link>
-          <Link
-            href="/dashboard"
-            className="text-sm text-muted transition-colors hover:text-cream"
-          >
-            Back to dashboard
-          </Link>
         </div>
       </header>
 
@@ -298,7 +292,7 @@ export default function SettingsPage() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   maxLength={20}
-                  className="w-full border border-line bg-black/20 px-4 py-3 text-sm text-cream focus:border-accent focus:outline-none sm:max-w-sm"
+                  className="w-full rounded-lg border border-line bg-black/20 px-4 py-3 text-sm text-cream focus:border-accent focus:outline-none sm:max-w-sm"
                 />
                 {username && !isValidUsername && (
                   <p className="mt-1.5 text-xs text-rose-300">3–20 characters required.</p>
@@ -308,7 +302,7 @@ export default function SettingsPage() {
               <button
                 type="submit"
                 disabled={!isValidUsername || usernameStatus.saving}
-                className="bg-accent px-5 py-2.5 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
+                className="rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
               >
                 {usernameStatus.saving ? "Saving…" : "Save username"}
               </button>
@@ -332,7 +326,7 @@ export default function SettingsPage() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full border border-line bg-black/20 px-4 py-3 text-sm text-cream focus:border-accent focus:outline-none sm:max-w-sm"
+                  className="w-full rounded-lg border border-line bg-black/20 px-4 py-3 text-sm text-cream focus:border-accent focus:outline-none sm:max-w-sm"
                 />
                 {email && !isValidEmail && (
                   <p className="mt-1.5 text-xs text-rose-300">Please enter a valid email.</p>
@@ -344,7 +338,7 @@ export default function SettingsPage() {
                 disabled={
                   !isValidEmail || email.trim() === user?.email || emailStatus.saving
                 }
-                className="bg-accent px-5 py-2.5 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
+                className="rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
               >
                 {emailStatus.saving ? "Saving…" : "Update email"}
               </button>
@@ -371,7 +365,7 @@ export default function SettingsPage() {
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
                   autoComplete="current-password"
-                  className="w-full border border-line bg-black/20 px-4 py-3 text-sm text-cream focus:border-accent focus:outline-none sm:max-w-sm"
+                  className="w-full rounded-lg border border-line bg-black/20 px-4 py-3 text-sm text-cream focus:border-accent focus:outline-none sm:max-w-sm"
                 />
               </div>
 
@@ -388,7 +382,7 @@ export default function SettingsPage() {
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   autoComplete="new-password"
-                  className="w-full border border-line bg-black/20 px-4 py-3 text-sm text-cream focus:border-accent focus:outline-none sm:max-w-sm"
+                  className="w-full rounded-lg border border-line bg-black/20 px-4 py-3 text-sm text-cream focus:border-accent focus:outline-none sm:max-w-sm"
                 />
                 <PasswordStrengthMeter password={newPassword} className="sm:max-w-sm" />
               </div>
@@ -406,7 +400,7 @@ export default function SettingsPage() {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   autoComplete="new-password"
-                  className="w-full border border-line bg-black/20 px-4 py-3 text-sm text-cream focus:border-accent focus:outline-none sm:max-w-sm"
+                  className="w-full rounded-lg border border-line bg-black/20 px-4 py-3 text-sm text-cream focus:border-accent focus:outline-none sm:max-w-sm"
                 />
                 {confirmPassword && !passwordsMatch && (
                   <p className="mt-1.5 text-xs text-rose-300">Passwords do not match.</p>
@@ -416,7 +410,7 @@ export default function SettingsPage() {
               <button
                 type="submit"
                 disabled={!canChangePassword || passwordStatus.saving}
-                className="bg-accent px-5 py-2.5 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
+                className="rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
               >
                 {passwordStatus.saving ? "Updating…" : "Update password"}
               </button>
@@ -429,7 +423,7 @@ export default function SettingsPage() {
           >
             {deleteStatus.error && <Banner kind="error" message={deleteStatus.error} />}
 
-            <div className="border border-against/30 bg-against/[0.06] p-4">
+            <div className="rounded-lg border border-against/30 bg-against/[0.06] p-4">
               <p className="text-sm leading-6 text-rose-100/90">
                 This deletes your account, profile, and rating immediately and
                 cannot be undone. Type your email address (
@@ -442,7 +436,7 @@ export default function SettingsPage() {
                 value={deleteConfirmText}
                 onChange={(e) => setDeleteConfirmText(e.target.value)}
                 placeholder={user?.email}
-                className="mt-4 w-full border border-against/30 bg-black/20 px-4 py-3 text-sm text-cream placeholder:text-rose-200/30 focus:border-against focus:outline-none sm:max-w-sm"
+                className="mt-4 w-full rounded-lg border border-against/30 bg-black/20 px-4 py-3 text-sm text-cream placeholder:text-rose-200/30 focus:border-against focus:outline-none sm:max-w-sm"
               />
 
               <button
@@ -450,7 +444,7 @@ export default function SettingsPage() {
                 disabled={
                   deleteConfirmText.trim() !== user?.email || deleteStatus.deleting
                 }
-                className="mt-4 bg-against px-5 py-2.5 text-sm font-semibold text-[#2a0a0f] transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
+                className="mt-4 rounded-lg bg-against px-5 py-2.5 text-sm font-semibold text-[#2a0a0f] transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
               >
                 {deleteStatus.deleting ? "Deleting…" : "Permanently delete account"}
               </button>

@@ -1,28 +1,29 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/supabaseClient";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
+import { trackEvent } from "@/lib/analytics";
 
 interface DebateFormData {
   topic: string;
   description: string;
-  debateFormat: "text-only" | "with-evidence";
+  ranked: boolean;
   timePerTurn: number;
 }
 
-const DEBATE_FORMATS = [
+const RANKED_OPTIONS = [
   {
-    id: "text-only",
-    name: "Text only",
-    description: "Pure argument-based debate with text submissions",
+    id: true,
+    name: "Ranked",
+    description: "Counts toward rating, wins, losses, and draws.",
   },
   {
-    id: "with-evidence",
-    name: "With evidence",
-    description: "Include links or citations to support arguments",
+    id: false,
+    name: "Unranked",
+    description: "Practice round — the result is saved, but ratings don't change.",
   },
 ] as const;
 
@@ -84,27 +85,20 @@ function CreateDebateContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [formData, setFormData] = useState<DebateFormData>({
-    topic: "",
-    description: "",
-    debateFormat: "text-only",
-    timePerTurn: 120,
+  // Pre-fill from ?topic= param (set by featured debate cards on landing page)
+  const [formData, setFormData] = useState<DebateFormData>(() => {
+    const topicParam = searchParams.get("topic");
+    const preset = topicParam ? TOPIC_PRESETS[topicParam] : undefined;
+
+    return {
+      topic: preset?.topic ?? "",
+      description: preset?.description ?? "",
+      ranked: true,
+      timePerTurn: 120,
+    };
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
-  // Pre-fill from ?topic= param (set by featured debate cards on landing page)
-  useEffect(() => {
-    const topicParam = searchParams.get("topic");
-    if (topicParam && TOPIC_PRESETS[topicParam]) {
-      const preset = TOPIC_PRESETS[topicParam];
-      setFormData((prev) => ({
-        ...prev,
-        topic: preset.topic,
-        description: preset.description,
-      }));
-    }
-  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -133,7 +127,7 @@ function CreateDebateContent() {
         id: code,
         topic: formData.topic.trim(),
         description: formData.description.trim() || null,
-        debate_format: formData.debateFormat,
+        ranked: formData.ranked,
         time_per_turn: formData.timePerTurn,
         created_by: session.user.id,
         status: "waiting",
@@ -149,9 +143,11 @@ function CreateDebateContent() {
         return;
       }
 
+      trackEvent("debate_created", { ranked: formData.ranked });
+
       router.push(`/debate/${code}/lobby`);
-    } catch (err: any) {
-      setError(err.message || "Failed to create debate.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create debate.");
       setLoading(false);
     }
   };
@@ -160,27 +156,6 @@ function CreateDebateContent() {
 
   return (
     <div className="min-h-screen bg-ink text-cream">
-
-      {/* Nav */}
-      <nav className="sticky top-0 z-40 bg-ink/95 backdrop-blur border-b border-line">
-        <div className="max-w-2xl mx-auto px-6 h-16 flex items-center gap-3">
-          <Link
-            href="/"
-            className="text-muted-2 hover:text-cream transition-colors text-sm"
-          >
-            ← Home
-          </Link>
-          <span className="text-muted-2/40">/</span>
-          <Link
-            href="/dashboard"
-            className="text-muted-2 hover:text-cream transition-colors text-sm"
-          >
-            Dashboard
-          </Link>
-          <span className="text-muted-2/40">/</span>
-          <span className="text-muted text-sm">New debate</span>
-        </div>
-      </nav>
 
       <div className="max-w-2xl mx-auto px-6 py-12">
 
@@ -195,7 +170,7 @@ function CreateDebateContent() {
         {/* Header */}
         <div className="mb-10">
           <p className="eyebrow mb-4">
-            {isPreset ? "No. 02 — Custom motion" : "No. 02 — New room"}
+            {isPreset ? "Custom motion" : "New room"}
           </p>
           <h1 className="font-serif text-3xl tracking-tight text-[#fffaf0] mb-2">
             {isPreset ? "Start this debate" : "Create a debate"}
@@ -210,7 +185,7 @@ function CreateDebateContent() {
         <form onSubmit={handleSubmit} className="space-y-6">
 
           {error && (
-            <div className="px-4 py-3 border border-against/25 bg-against/10 text-rose-300 text-sm">
+            <div className="rounded-lg px-4 py-3 border border-against/25 bg-against/10 text-rose-300 text-sm">
               {error}
             </div>
           )}
@@ -228,7 +203,7 @@ function CreateDebateContent() {
               }
               placeholder="e.g. AI should regulate financial markets"
               required
-              className="w-full border border-line bg-black/20 text-cream px-4 py-3 text-sm placeholder:text-muted-2/50 focus:outline-none focus:border-accent transition-colors"
+              className="w-full rounded-lg border border-line bg-black/20 text-cream px-4 py-3 text-sm placeholder:text-muted-2/50 focus:outline-none focus:border-accent transition-colors"
             />
             <p className="text-xs text-muted-2">
               State the proposition clearly — debaters will argue for or against it.
@@ -248,37 +223,37 @@ function CreateDebateContent() {
               }
               placeholder="Add context or scope to help both sides understand the debate…"
               rows={3}
-              className="w-full border border-line bg-black/20 text-cream px-4 py-3 text-sm placeholder:text-muted-2/50 focus:outline-none focus:border-accent transition-colors resize-none"
+              className="w-full rounded-lg border border-line bg-black/20 text-cream px-4 py-3 text-sm placeholder:text-muted-2/50 focus:outline-none focus:border-accent transition-colors resize-none"
             />
           </div>
 
-          {/* Format */}
+          {/* Ranked */}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-[#c7c0b3]">
-              Format <span className="text-rose-400">*</span>
+              Ranked <span className="text-rose-400">*</span>
             </label>
             <div className="grid grid-cols-2 gap-3">
-              {DEBATE_FORMATS.map((format) => {
-                const selected = formData.debateFormat === format.id;
+              {RANKED_OPTIONS.map((option) => {
+                const selected = formData.ranked === option.id;
                 return (
                   <button
-                    key={format.id}
+                    key={String(option.id)}
                     type="button"
                     onClick={() =>
                       setFormData((p) => ({
                         ...p,
-                        debateFormat: format.id,
+                        ranked: option.id,
                       }))
                     }
-                    className={`text-left px-4 py-4 border transition-colors ${
+                    className={`text-left rounded-lg px-4 py-4 border transition-colors ${
                       selected
                         ? "bg-accent/10 border-accent/50 text-cream"
                         : "bg-surface border-line text-muted hover:border-line-strong hover:text-[#d7d0c2]"
                     }`}
                   >
-                    <p className="text-sm font-medium mb-0.5">{format.name}</p>
+                    <p className="text-sm font-medium mb-0.5">{option.name}</p>
                     <p className="text-xs opacity-70 leading-relaxed">
-                      {format.description}
+                      {option.description}
                     </p>
                   </button>
                 );
@@ -301,7 +276,7 @@ function CreateDebateContent() {
                     onClick={() =>
                       setFormData((p) => ({ ...p, timePerTurn: value }))
                     }
-                    className={`text-center px-2 py-3 border transition-colors ${
+                    className={`text-center rounded-lg px-2 py-3 border transition-colors ${
                       selected
                         ? "bg-accent/10 border-accent/50 text-cream"
                         : "bg-surface border-line text-muted-2 hover:border-line-strong hover:text-muted"
@@ -319,14 +294,14 @@ function CreateDebateContent() {
           <div className="border-t border-line pt-6 flex gap-3">
             <Link
               href="/dashboard"
-              className="flex-1 text-center px-5 py-3 bg-surface hover:bg-surface-2 border border-line text-muted hover:text-cream text-sm font-medium transition-colors"
+              className="flex-1 text-center rounded-lg px-5 py-3 bg-surface hover:bg-surface-2 border border-line text-muted hover:text-cream text-sm font-medium transition-colors"
             >
               Cancel
             </Link>
             <button
               type="submit"
               disabled={!formData.topic.trim() || loading}
-              className="flex-1 px-5 py-3 bg-accent hover:bg-accent-strong disabled:bg-white/10 disabled:text-white/30 disabled:cursor-not-allowed text-[#0d1117] text-sm font-semibold transition-colors"
+              className="flex-1 rounded-lg px-5 py-3 bg-accent hover:bg-accent-strong disabled:bg-white/10 disabled:text-white/30 disabled:cursor-not-allowed text-[#0d1117] text-sm font-semibold transition-colors"
             >
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
@@ -341,7 +316,7 @@ function CreateDebateContent() {
         </form>
 
         {/* Info box */}
-        <div className="mt-8 px-5 py-4 border border-line bg-surface">
+        <div className="mt-8 rounded-xl px-5 py-4 border border-line bg-surface">
           <p className="text-xs text-muted-2 leading-relaxed">
             Once created, you&apos;ll land in a lobby with your{" "}
             <span className="text-muted font-mono">4-digit code</span>. Share

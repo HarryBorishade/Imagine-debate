@@ -18,7 +18,7 @@ export default function ThankYouPage() {
 
       <main id="main-content" className="flex flex-1 items-center justify-center px-5 py-16">
         <div className="w-full max-w-lg text-center">
-          <div className="mx-auto mb-7 flex h-16 w-16 items-center justify-center border border-accent/30 bg-accent/10">
+          <div className="mx-auto mb-7 flex h-16 w-16 items-center justify-center rounded-2xl border border-accent/30 bg-accent/10">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path
                 d="M5 12.5l4.5 4.5L19 7"
@@ -42,13 +42,13 @@ export default function ThankYouPage() {
           <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
             <Link
               href="/dashboard"
-              className="bg-cream px-5 py-3 text-sm font-semibold text-ink transition-colors hover:bg-white"
+              className="rounded-lg bg-cream px-5 py-3 text-sm font-semibold text-ink transition-colors hover:bg-white"
             >
               Go to dashboard
             </Link>
             <Link
               href="/"
-              className="border border-line-strong px-5 py-3 text-sm font-semibold text-cream transition-colors hover:bg-white/5"
+              className="rounded-lg border border-line-strong px-5 py-3 text-sm font-semibold text-cream transition-colors hover:bg-white/5"
             >
               Back to home
             </Link>

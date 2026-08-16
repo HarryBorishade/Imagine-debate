@@ -34,7 +34,7 @@ export default function ContactPage() {
               </p>
 
               <div className="mt-8 space-y-4">
-                <div className="border-t-2 border-accent bg-accent/[0.06] p-5">
+                <div className="rounded-[var(--radius-lg)] border-t-2 border-accent bg-accent/[0.06] p-5 shadow-[var(--shadow-card)]">
                   <h2 className="text-sm font-semibold text-[#fffaf0]">
                     Our response-time promise
                   </h2>
@@ -44,7 +44,7 @@ export default function ContactPage() {
                   </p>
                 </div>
 
-                <div className="border border-line bg-surface p-5">
+                <div className="card-panel p-5">
                   <h2 className="text-sm font-semibold text-[#fffaf0]">
                     Prefer email?
                   </h2>
@@ -62,7 +62,7 @@ export default function ContactPage() {
               </div>
             </div>
 
-            <div className="border-t-2 border-accent bg-surface p-6 sm:p-8">
+            <div className="card-panel border-t-2 border-t-accent p-6 sm:p-8">
               <h2 className="font-serif text-lg text-[#fffaf0]">
                 Send an enquiry
               </h2>

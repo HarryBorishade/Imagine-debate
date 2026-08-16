@@ -452,19 +452,32 @@ serve(async (request: Request): Promise<Response> => {
     return jsonResponse({ error: "Missing Authorization header." }, 401);
   }
 
-  const callerClient = createClient(supabaseUrl, anonKey, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  // A trusted system caller (the Node backend, firing immediately after a
+  // debate finishes normally) authenticates with the service-role key
+  // itself instead of a per-user session token. This isn't a privilege
+  // escalation — that key already bypasses RLS and could call
+  // apply_debate_result directly without going through this function at
+  // all — it just recognizes an already-fully-trusted caller so it can
+  // skip the participant check meant for browser sessions.
+  const isTrustedSystemCaller = authHeader === `Bearer ${serviceRoleKey}`;
 
-  const { data: callerData, error: callerError } =
-    await callerClient.auth.getUser();
+  let callerId: string | null = null;
 
-  if (callerError || !callerData.user) {
-    return jsonResponse({ error: "Invalid or expired session." }, 401);
+  if (!isTrustedSystemCaller) {
+    const callerClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    const { data: callerData, error: callerError } =
+      await callerClient.auth.getUser();
+
+    if (callerError || !callerData.user) {
+      return jsonResponse({ error: "Invalid or expired session." }, 401);
+    }
+
+    callerId = callerData.user.id;
   }
-
-  const callerId = callerData.user.id;
 
   const supabase = createClient(supabaseUrl, serviceRoleKey, {
     auth: {
@@ -508,7 +521,7 @@ serve(async (request: Request): Promise<Response> => {
     const { data: debate, error: debateError } = await supabase
       .from("debates")
       .select(
-        "id, topic, appraisal_status, appraisal_result, for_player_id, against_player_id, created_by",
+        "id, topic, appraisal_status, appraisal_result, for_player_id, against_player_id, created_by, ranked",
       )
       .eq("id", debateId)
       .maybeSingle();
@@ -524,6 +537,7 @@ serve(async (request: Request): Promise<Response> => {
     }
 
     const isParticipant =
+      isTrustedSystemCaller ||
       callerId === debate.created_by ||
       callerId === debate.for_player_id ||
       callerId === debate.against_player_id;
@@ -696,6 +710,11 @@ serve(async (request: Request): Promise<Response> => {
           p_against_player_id: debate.against_player_id,
           p_winning_side: finalResult.winner,
           p_ended_reason: "ai_judged",
+          // Read from the debates row itself, never from the request body —
+          // this function is reachable from any participant's browser, and
+          // a client-supplied `ranked` flag would let a losing player spoof
+          // an unranked result to dodge a rating loss.
+          p_ranked: debate.ranked !== false,
         },
       );
 

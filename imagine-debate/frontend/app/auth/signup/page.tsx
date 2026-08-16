@@ -83,7 +83,7 @@ export default function SignupPage() {
           Imagine Debate
         </Link>
 
-        <div className="border-t-2 border-accent bg-surface p-7 sm:p-9">
+        <div className="card-panel p-7 sm:p-9">
           <div className="mb-7">
             <h1 className="font-serif text-3xl tracking-tight text-[#fffaf0]">
               Create your account
@@ -121,7 +121,7 @@ export default function SignupPage() {
                 onChange={(e) => setUsername(e.target.value)}
                 disabled={loading}
                 autoComplete="username"
-                className="w-full border border-line bg-black/20 px-4 py-3 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none disabled:opacity-60"
+                className="w-full rounded-lg border border-line bg-black/20 px-4 py-3 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none disabled:opacity-60"
               />
               {username && !isValidUsername && (
                 <p className="mt-1.5 text-xs text-rose-300">3–20 characters required.</p>
@@ -140,7 +140,7 @@ export default function SignupPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={loading}
                 autoComplete="email"
-                className="w-full border border-line bg-black/20 px-4 py-3 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none disabled:opacity-60"
+                className="w-full rounded-lg border border-line bg-black/20 px-4 py-3 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none disabled:opacity-60"
               />
               {email && !isValidEmail && (
                 <p className="mt-1.5 text-xs text-rose-300">Please enter a valid email.</p>
@@ -160,7 +160,7 @@ export default function SignupPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={loading}
                   autoComplete="new-password"
-                  className="w-full border border-line bg-black/20 px-4 py-3 pr-16 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none disabled:opacity-60"
+                  className="w-full rounded-lg border border-line bg-black/20 px-4 py-3 pr-16 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none disabled:opacity-60"
                 />
                 <button
                   type="button"
@@ -185,7 +185,7 @@ export default function SignupPage() {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 disabled={loading}
                 autoComplete="new-password"
-                className="w-full border border-line bg-black/20 px-4 py-3 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none disabled:opacity-60"
+                className="w-full rounded-lg border border-line bg-black/20 px-4 py-3 text-sm text-cream placeholder:text-muted-2/60 focus:border-accent focus:outline-none disabled:opacity-60"
               />
               {confirmPassword && !passwordsMatch && (
                 <p className="mt-1.5 text-xs text-rose-300">Passwords do not match.</p>
@@ -195,7 +195,7 @@ export default function SignupPage() {
             <button
               type="submit"
               disabled={!isFormValid || loading}
-              className="w-full bg-accent px-5 py-3 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
+              className="w-full rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
             >
               {loading ? "Creating account…" : "Create account"}
             </button>

@@ -83,7 +83,7 @@ export function PasswordStrengthMeter({
           {[0, 1, 2, 3].map((i) => (
             <span
               key={i}
-              className={`h-1.5 flex-1 transition-colors ${
+              className={`h-1.5 flex-1 rounded-full transition-colors ${
                 i < score ? BAR_COLORS[score] : "bg-white/10"
               }`}
             />

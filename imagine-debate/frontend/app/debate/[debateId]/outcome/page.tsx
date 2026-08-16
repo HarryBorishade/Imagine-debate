@@ -3,12 +3,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/supabaseClient";
+import { fetchMessageHistory, type Message } from "@/lib/messageHistory";
 
 const OUTCOME_STEPS = [
   "Collecting final arguments",
   "Preparing appraisal",
   "Waiting for AI review",
 ] as const;
+
+// Mirrors backend/src/socketServer.ts's DEBATE_STAGES labels — the
+// transcript only has the raw argument_part value stored, not the
+// human-readable label, since that's server-only state during a live
+// debate.
+const ARGUMENT_PART_LABELS: Record<string, string> = {
+  opening_statement: "Opening Statement",
+  primary_claim: "Primary Claim",
+  evidence: "Evidence",
+  explanation: "Explanation",
+  rebuttal: "Rebuttal",
+  counter_rebuttal: "Counter-Rebuttal",
+  closing_statement: "Closing Statement",
+};
 
 type DebateSide = "for" | "against";
 type Verdict = DebateSide | "draw";
@@ -55,6 +70,10 @@ interface DebateRow {
   appraisal_status: AppraisalStatus;
   appraisal_error: string | null;
   appraisal_result: DebateAppraisal | null;
+  for_player_id: string | null;
+  against_player_id: string | null;
+  ended_reason: string | null;
+  winning_side: Verdict | null;
 }
 
 function isDebateSide(value: string | null): value is DebateSide {
@@ -127,6 +146,17 @@ export default function DebateOutcomeWaiting() {
   const [judging, setJudging] = useState(false);
   const initialJudgementStarted = useRef(false);
 
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [participantIds, setParticipantIds] = useState<{
+    forPlayerId: string | null;
+    againstPlayerId: string | null;
+  } | null>(null);
+  const [forfeit, setForfeit] = useState<{
+    endedReason: string;
+    winningSide: Verdict | null;
+  } | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+
   useEffect(() => {
     if (!isValidDebateId) {
       router.replace("/debate/create");
@@ -144,7 +174,11 @@ export default function DebateOutcomeWaiting() {
       `debate_${debateId}_side`
     );
 
+    // sessionStorage only exists in the browser, so this can't move to a
+    // lazy useState initializer without breaking SSR — the effect is the
+    // correct place to sync from this external, browser-only store.
     if (storedTopic) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDebateName(storedTopic);
     }
 
@@ -153,13 +187,44 @@ export default function DebateOutcomeWaiting() {
     }
   }, [debateId, isValidDebateId]);
 
+  useEffect(() => {
+    if (!isValidDebateId) return;
+
+    void supabase.auth.getUser().then(({ data }) => {
+      setMyUserId(data.user?.id ?? null);
+    });
+  }, [isValidDebateId]);
+
+  // Messages are immutable once a debate is completed, so this only needs
+  // to run once — no polling required.
+  useEffect(() => {
+    if (!isValidDebateId) return;
+
+    void fetchMessageHistory(debateId).then(setMessages);
+  }, [debateId, isValidDebateId]);
+
+  const derivedSide = useMemo<DebateSide | null>(() => {
+    if (myUserId && participantIds) {
+      if (participantIds.forPlayerId === myUserId) return "for";
+      if (participantIds.againstPlayerId === myUserId) return "against";
+    }
+
+    return null;
+  }, [myUserId, participantIds]);
+
+  useEffect(() => {
+    if (derivedSide) {
+      setMySide(derivedSide);
+    }
+  }, [derivedSide]);
+
   const loadDebateState = useCallback(async (): Promise<DebateRow | null> => {
     if (!isValidDebateId) return null;
 
     const { data, error } = await supabase
       .from("debates")
       .select(
-        "topic, appraisal_status, appraisal_error, appraisal_result"
+        "topic, appraisal_status, appraisal_error, appraisal_result, for_player_id, against_player_id, ended_reason, winning_side"
       )
       .eq("id", debateId)
       .maybeSingle();
@@ -181,6 +246,17 @@ export default function DebateOutcomeWaiting() {
     if (debate.topic) {
       setDebateName(debate.topic);
     }
+
+    setParticipantIds({
+      forPlayerId: debate.for_player_id,
+      againstPlayerId: debate.against_player_id,
+    });
+
+    setForfeit(
+      debate.ended_reason?.startsWith("forfeit")
+        ? { endedReason: debate.ended_reason, winningSide: debate.winning_side }
+        : null
+    );
 
     setAppraisalStatus(debate.appraisal_status);
 
@@ -261,11 +337,26 @@ export default function DebateOutcomeWaiting() {
   useEffect(() => {
     if (!isValidDebateId) return;
 
+    // Genuine fetch-on-mount: loadDebateState() awaits a real Supabase
+    // round trip before any state update, and this decides whether to
+    // kick off a one-time AI judgement — not a synchronous render loop.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadDebateState().then((debate) => {
       if (
         !debate ||
         initialJudgementStarted.current ||
-        debate.appraisal_status === "completed"
+        debate.appraisal_status === "completed" ||
+        // The backend already kicks off judging the moment a debate
+        // finishes normally — by the time this page loads it has very
+        // often already claimed the "processing" lock, so calling
+        // runJudgement() here would just hit a 409 and show a spurious
+        // error. The 3s poller below already handles "processing".
+        debate.appraisal_status === "processing" ||
+        // Forfeited debates never get queued for AI appraisal at all (only
+        // the normal-completion path sets appraisal_status) — there's
+        // nothing to judge, and a forfeit may not even have both sides'
+        // arguments recorded.
+        debate.ended_reason?.startsWith("forfeit")
       ) {
         return;
       }
@@ -297,14 +388,14 @@ export default function DebateOutcomeWaiting() {
   ]);
 
   useEffect(() => {
-    if (!isValidDebateId || judgement) return;
+    if (!isValidDebateId || judgement || forfeit) return;
 
     const timer = window.setInterval(() => {
       setSecondsWaiting((previous) => previous + 1);
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [isValidDebateId, judgement]);
+  }, [isValidDebateId, judgement, forfeit]);
 
   const waitingTime = useMemo(() => {
     const minutes = Math.floor(secondsWaiting / 60);
@@ -366,7 +457,7 @@ export default function DebateOutcomeWaiting() {
 
           <button
             onClick={returnToDashboard}
-            className="border border-line px-4 py-2 text-sm font-medium text-muted transition-colors hover:bg-white/8 hover:text-cream"
+            className="rounded-lg border border-line px-4 py-2 text-sm font-medium text-muted transition-colors hover:bg-white/8 hover:text-cream"
           >
             Dashboard
           </button>
@@ -375,10 +466,10 @@ export default function DebateOutcomeWaiting() {
 
       <main className="flex min-h-[calc(100vh-73px)] items-center justify-center px-6 py-10">
         <div className="w-full max-w-2xl">
-          <div className="border-t-2 border-accent bg-surface p-8 text-center shadow-2xl shadow-black/40 sm:p-12">
-            <div className="mx-auto mb-8 flex h-16 w-16 items-center justify-center border border-line bg-black/20">
+          <div className="card-panel border-t-2 border-t-accent p-8 text-center sm:p-12">
+            <div className="mx-auto mb-8 flex h-16 w-16 items-center justify-center rounded-2xl border border-line bg-black/20">
               <div className="relative h-10 w-10">
-                {judgement ? (
+                {judgement || forfeit ? (
                   <div className="flex h-10 w-10 items-center justify-center text-xs font-bold text-emerald-300">
                     OK
                   </div>
@@ -399,22 +490,40 @@ export default function DebateOutcomeWaiting() {
             </div>
 
             <p className="eyebrow mb-4 justify-center">
-              {judgement ? "Outcome ready" : "Waiting for outcome"}
+              {judgement
+                ? "Outcome ready"
+                : forfeit
+                  ? "Debate ended early"
+                  : "Waiting for outcome"}
             </p>
 
             <h2 className="mb-4 font-serif text-3xl tracking-tight text-[#fffaf0] sm:text-4xl">
-              {judgement ? winnerLabel : "The debate is complete"}
+              {judgement
+                ? winnerLabel
+                : forfeit
+                  ? forfeit.winningSide === "draw"
+                    ? "The debate ended in a draw"
+                    : forfeit.winningSide === "for"
+                      ? "FOR wins by forfeit"
+                      : forfeit.winningSide === "against"
+                        ? "AGAINST wins by forfeit"
+                        : "The debate ended early"
+                  : "The debate is complete"}
             </h2>
 
             <p className="mx-auto mb-8 max-w-md text-sm leading-relaxed text-muted">
               {judgement
                 ? judgement.summary ||
                   "The AI judge has appraised the debate."
-                : judgeError || waitingMessage}
+                : forfeit
+                  ? forfeit.endedReason === "forfeit_disconnect"
+                    ? "The opponent didn't reconnect in time, so this debate was never scored by the AI judge."
+                    : "One player left the debate, so it was never scored by the AI judge."
+                  : judgeError || waitingMessage}
             </p>
 
-            {!judgement && (
-              <div className="mb-8 border border-line bg-black/20 p-5">
+            {!judgement && !forfeit && (
+              <div className="mb-8 rounded-2xl border border-line bg-black/20 p-5">
                 <div className="mb-4 flex items-center justify-between gap-3 text-sm">
                   <span className="font-medium text-[#c7c0b3]">
                     Outcome status
@@ -425,15 +534,15 @@ export default function DebateOutcomeWaiting() {
                   </span>
                 </div>
 
-                <div className="mb-5 h-1 overflow-hidden bg-black/30">
-                  <div className="h-full w-2/3 bg-accent transition-all" />
+                <div className="mb-5 h-1.5 overflow-hidden rounded-full bg-black/30">
+                  <div className="h-full w-2/3 rounded-full bg-accent transition-all" />
                 </div>
 
                 <div className="grid gap-3 text-left sm:grid-cols-3">
                   {OUTCOME_STEPS.map((step, index) => (
                     <div
                       key={step}
-                      className={`border-l-2 px-3 py-3 ${
+                      className={`rounded-xl border-l-2 px-3 py-3 ${
                         index < 2
                           ? "border-emerald-400/50 bg-emerald-400/5 text-emerald-300"
                           : "border-accent bg-accent/5 text-accent"
@@ -453,7 +562,7 @@ export default function DebateOutcomeWaiting() {
             )}
 
             {judgement && (
-              <div className="mb-8 grid gap-px border border-line bg-line text-left sm:grid-cols-2">
+              <div className="mb-8 grid gap-px overflow-hidden rounded-2xl border border-line bg-line text-left sm:grid-cols-2">
                 <div className="bg-emerald-400/[0.06] p-4">
                   <p className="text-xs font-semibold uppercase tracking-widest text-emerald-300">
                     FOR
@@ -486,13 +595,13 @@ export default function DebateOutcomeWaiting() {
               </div>
             )}
 
-            {judgeError && !judgement && (
+            {judgeError && !judgement && !forfeit && (
               <button
                 onClick={() => {
                   void runJudgement();
                 }}
                 disabled={judging}
-                className="mr-3 bg-accent px-6 py-3 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong disabled:bg-white/10 disabled:text-white/30"
+                className="mr-3 rounded-lg bg-accent px-6 py-3 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong disabled:bg-white/10 disabled:text-white/30"
               >
                 {judging ? "Retrying…" : "Retry judgement"}
               </button>
@@ -500,7 +609,7 @@ export default function DebateOutcomeWaiting() {
 
             <button
               onClick={returnToDashboard}
-              className="border border-line px-6 py-3 text-sm font-semibold text-cream transition-colors hover:bg-white/8"
+              className="rounded-lg border border-line px-6 py-3 text-sm font-semibold text-cream transition-colors hover:bg-white/8"
             >
               Return to Dashboard
             </button>
@@ -519,6 +628,55 @@ export default function DebateOutcomeWaiting() {
               </p>
             )}
           </div>
+
+          {messages.length > 0 && (
+            <div className="card-panel mt-6 p-6 text-left sm:p-8">
+              <p className="eyebrow mb-5">Transcript</p>
+
+              <div className="space-y-4">
+                {messages.map((msg, index) => (
+                  <div
+                    key={msg.id ?? `message-${index}`}
+                    className={`rounded-xl border px-4 py-3 ${
+                      msg.side === "for"
+                        ? "border-emerald-400/25 bg-emerald-400/[0.04]"
+                        : msg.side === "against"
+                          ? "border-rose-400/25 bg-rose-400/[0.04]"
+                          : "border-line bg-black/10"
+                    }`}
+                  >
+                    <div className="mb-1.5 flex items-baseline gap-2">
+                      <span className="text-xs font-semibold text-[#c7c0b3]">
+                        {msg.username}
+                      </span>
+
+                      {msg.side && (
+                        <span
+                          className={`text-[10px] font-bold uppercase tracking-wide ${
+                            msg.side === "for"
+                              ? "text-emerald-300"
+                              : "text-rose-300"
+                          }`}
+                        >
+                          {msg.side}
+                        </span>
+                      )}
+
+                      {msg.argumentPart && (
+                        <span className="text-[10px] uppercase tracking-wide text-muted-2">
+                          {ARGUMENT_PART_LABELS[msg.argumentPart] ?? msg.argumentPart}
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="text-sm leading-relaxed text-[#e8e1d2] whitespace-pre-wrap break-words">
+                      {msg.content}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </div>

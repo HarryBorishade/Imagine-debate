@@ -28,7 +28,7 @@ const FAQ_ITEMS: Array<{ q: string; a: string }> = [
   },
   {
     q: "How do ratings work?",
-    a: "Every player has a rating that starts at 1000 and moves after each completed debate using an Elo-style calculation — beat a higher-rated opponent and you gain more points; lose to a lower-rated one and you lose more. Wins, losses, and draws are tracked on your dashboard. Forfeits (leaving mid-debate) count as a loss.",
+    a: "Every player has a rating that starts at 400 and moves after each completed debate using an Elo-style calculation — beat a higher-rated opponent and you gain more points; lose to a lower-rated one and you lose more. Wins, losses, and draws are tracked on your dashboard. Forfeits (leaving mid-debate) count as a loss.",
   },
   {
     q: "What happens if my opponent leaves or disconnects?",
@@ -81,7 +81,7 @@ export default function FaqPage() {
             .
           </p>
 
-          <div className="mt-10 divide-y divide-line border border-line bg-surface">
+          <div className="card-panel mt-10 divide-y divide-line">
             {FAQ_ITEMS.map((item, index) => (
               <details key={item.q} className="group px-5">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-4 py-5 text-left [&::-webkit-details-marker]:hidden">
@@ -112,7 +112,7 @@ export default function FaqPage() {
             ))}
           </div>
 
-          <div className="mt-8 border-t-2 border-accent bg-accent/[0.06] p-6">
+          <div className="mt-8 rounded-[var(--radius-lg)] border-t-2 border-accent bg-accent/[0.06] p-6 shadow-[var(--shadow-card)]">
             <h2 className="font-serif text-lg text-[#fffaf0]">
               Need a hand?
             </h2>
@@ -122,7 +122,7 @@ export default function FaqPage() {
             </p>
             <Link
               href="/contact"
-              className="mt-4 inline-flex bg-accent px-4 py-2 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong"
+              className="mt-4 inline-flex rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-[#0d1117] transition-colors hover:bg-accent-strong"
             >
               Contact us
             </Link>

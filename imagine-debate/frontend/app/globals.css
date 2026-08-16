@@ -1,8 +1,13 @@
 @import "tailwindcss";
 
 /* ---------------------------------------------------------------------------
-   Brand tokens. Imagine Debate is a committed dark theme: warm charcoal
-   surfaces, cream text, an emerald accent, and for/against as emerald/rose.
+   Brand tokens. Imagine Debate is a committed dark theme: charcoal surfaces,
+   cream text, an emerald accent, and for/against as emerald/rose — the same
+   palette as before. What changed (2026-08-16, moving away from the earlier
+   "editorial/broadsheet" identity toward something bolder and more
+   game-like, chess.com as the reference point) is layered on top of it:
+   rounded, elevated card surfaces instead of hairline borders on paper
+   grain, and a single strong sans typeface instead of a serif/sans split.
    Naming the palette here (instead of scattering hex codes) keeps every page
    visually consistent and makes future theming a one-file change.
 --------------------------------------------------------------------------- */
@@ -23,6 +28,13 @@
 
   --for: #6ee7b7;
   --against: #fb7185;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.24), 0 12px 32px -12px rgba(0, 0, 0, 0.55);
+  --shadow-card-lg: 0 2px 4px rgba(0, 0, 0, 0.28), 0 24px 56px -18px rgba(0, 0, 0, 0.6);
 }
 
 @theme inline {
@@ -41,9 +53,17 @@
   --color-for: var(--for);
   --color-against: var(--against);
 
+  --radius-card-sm: var(--radius-sm);
+  --radius-card-md: var(--radius-md);
+  --radius-card-lg: var(--radius-lg);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  --font-serif: var(--font-fraunces);
+  /* A single strong sans face carries headings AND body now — no serif
+     split. Aliasing font-serif to the same sans stack (rather than deleting
+     the utility) means every existing `font-serif` heading across the app
+     retargets from this one line instead of needing a per-page edit. */
+  --font-serif: var(--font-geist-sans);
 }
 
 * {
@@ -63,41 +83,42 @@ body {
     Arial, Helvetica, sans-serif;
   /* Avoid iOS rubber-band flashes of white behind the dark app. */
   overscroll-behavior-y: none;
-  /* A faint grain keeps large charcoal fields from reading as a flat,
-     machine-generated gradient — closer to printed paper than a screen. */
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
-  background-repeat: repeat;
 }
 
 /* ---------------------------------------------------------------------------
-   Editorial primitives shared across pages — an eyebrow label, a numbered
-   dossier index, and a hairline rule with a numbered "issue" mark. Kept here
-   rather than duplicated as inline Tailwind on every page.
+   Shared surface primitives. `.card-panel` is the one rounded, shadowed
+   surface every card/panel across the app should use instead of a bare
+   `border border-line` rectangle — the main visual signal of the new,
+   more game-like identity. `.eyebrow` and `.dossier-index` are kept as
+   small functional labels (room codes, stage counters) but restyled away
+   from the old "printed dossier" kicker toward a compact status-chip look.
 --------------------------------------------------------------------------- */
+.card-panel {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
 .eyebrow {
   display: inline-flex;
   align-items: center;
-  gap: 0.5em;
+  gap: 0.4em;
+  border-radius: 999px;
+  padding: 0.2em 0.75em;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
   font-family: var(--font-geist-mono), ui-monospace, monospace;
   font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.16em;
+  font-weight: 700;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--accent);
-}
-.eyebrow::before {
-  content: "";
-  display: inline-block;
-  width: 1.25em;
-  height: 1px;
-  background: currentColor;
-  opacity: 0.7;
 }
 
 .dossier-index {
   font-family: var(--font-geist-mono), ui-monospace, monospace;
   font-size: 0.75rem;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   color: var(--muted-2);
 }
 

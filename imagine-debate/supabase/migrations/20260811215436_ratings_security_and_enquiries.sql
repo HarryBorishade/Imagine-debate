@@ -46,13 +46,27 @@ begin;
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   username text,
-  rating integer not null default 1000,
+  rating integer not null default 400,
   wins integer not null default 0,
   losses integer not null default 0,
   draws integer not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- If public.profiles already existed before this migration (it did in
+-- production — an earlier, undocumented version with id/username/role/bio/
+-- country/created_at only), `create table if not exists` above is a no-op
+-- and none of the rating/wins/losses/draws/updated_at columns get added.
+-- These statements backfill them onto whatever profiles table is already
+-- there, existing rows included, so this migration is safe to re-run
+-- against a project with either a fresh or a pre-existing profiles table.
+alter table public.profiles
+  add column if not exists rating integer not null default 400,
+  add column if not exists wins integer not null default 0,
+  add column if not exists losses integer not null default 0,
+  add column if not exists draws integer not null default 0,
+  add column if not exists updated_at timestamptz not null default now();
 
 comment on table public.profiles is
   'Public-ish player record: rating + win/loss/draw record. Written only by '

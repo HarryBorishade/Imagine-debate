@@ -1,26 +1,23 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/supabaseClient";
+import { trackEvent } from "@/lib/analytics";
 
 function JoinDebateContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [code, setCode] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-
   // FIX: Only pre-fill from ?code= param, and only if it's exactly 4 digits.
   // Previously this also checked ?topic= which could receive slugs like "ai-finance".
-  useEffect(() => {
+  const [code, setCode] = useState(() => {
     const codeParam = searchParams.get("code");
-    if (codeParam && /^\d{4}$/.test(codeParam)) {
-      setCode(codeParam);
-    }
-  }, [searchParams]);
+    return codeParam && /^\d{4}$/.test(codeParam) ? codeParam : "";
+  });
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handleJoin = async () => {
     const trimmed = code.trim();
@@ -60,9 +57,11 @@ function JoinDebateContent() {
         return;
       }
 
+      trackEvent("debate_joined");
+
       router.push(`/debate/${trimmed}/lobby`);
-    } catch (err: any) {
-      setError(err.message || "Failed to look up debate.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to look up debate.");
       setLoading(false);
     }
   };
@@ -109,7 +108,7 @@ function JoinDebateContent() {
                 {[0, 1, 2, 3].map((i) => (
                   <div
                     key={i}
-                    className={`h-16 border flex items-center justify-center text-2xl font-semibold font-mono transition-colors ${
+                    className={`h-16 rounded-xl border flex items-center justify-center text-2xl font-semibold font-mono transition-colors ${
                       i === digits.length
                         ? "border-accent bg-accent/10 text-cream"
                         : digits[i]
@@ -160,7 +159,7 @@ function JoinDebateContent() {
           <button
             onClick={handleJoin}
             disabled={code.length !== 4 || loading}
-            className="w-full px-5 py-3.5 bg-accent hover:bg-accent-strong disabled:bg-white/10 disabled:text-white/30 disabled:cursor-not-allowed text-[#0d1117] text-sm font-semibold transition-colors mb-3"
+            className="w-full rounded-lg px-5 py-3.5 bg-accent hover:bg-accent-strong disabled:bg-white/10 disabled:text-white/30 disabled:cursor-not-allowed text-[#0d1117] text-sm font-semibold transition-colors mb-3"
           >
             {loading ? (
               <span className="flex items-center justify-center gap-2">
@@ -174,7 +173,7 @@ function JoinDebateContent() {
 
           <Link
             href="/dashboard"
-            className="block w-full text-center px-5 py-3 bg-surface hover:bg-surface-2 border border-line text-muted hover:text-cream text-sm font-medium transition-colors"
+            className="block w-full text-center rounded-lg px-5 py-3 bg-surface hover:bg-surface-2 border border-line text-muted hover:text-cream text-sm font-medium transition-colors"
           >
             Back to dashboard
           </Link>

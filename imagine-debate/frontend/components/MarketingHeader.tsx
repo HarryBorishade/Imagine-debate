@@ -33,7 +33,7 @@ export function MarketingHeader() {
           </Link>
           <Link
             href="/debate/create"
-            className="border border-cream/80 px-4 py-2 font-semibold text-cream transition-colors hover:bg-cream hover:text-ink"
+            className="rounded-lg border border-cream/80 px-4 py-2 font-semibold text-cream transition-colors hover:bg-cream hover:text-ink"
           >
             Start a debate
           </Link>

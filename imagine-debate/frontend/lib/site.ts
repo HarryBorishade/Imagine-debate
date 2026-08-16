@@ -18,7 +18,7 @@ export const SITE = {
     "Structured, timed 1-v-1 debate rooms. Create a motion, invite an opponent, and make your case in clean rounds judged for clarity, logic, and rebuttal.",
   url: stripTrailingSlash(RAW_URL),
   // Where debate enquiries and support requests are answered.
-  supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "support@imagine-debate.app",
+  supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "debateimagine@gmail.com",
   // Public response-time promise, surfaced on the contact + FAQ pages.
   responseTimeBusinessDays: 2,
   responseTimePromise: "We reply to every enquiry within 2 business days.",
