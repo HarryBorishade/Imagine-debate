@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/supabaseClient";
+import { LocalAuthNotice } from "@/components/LocalAuthNotice";
 import {
   evaluatePassword,
   PasswordStrengthMeter,
@@ -17,6 +18,7 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [signedIn, setSignedIn] = useState(false);
 
   const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   const isValidUsername = username.length >= 3 && username.length <= 20;
@@ -32,6 +34,7 @@ export default function SignupPage() {
     e.preventDefault();
     setError("");
     setSuccess("");
+    setSignedIn(false);
 
     if (!isValidUsername) {
       setError("Username must be 3–20 characters.");
@@ -52,7 +55,7 @@ export default function SignupPage() {
 
     setLoading(true);
 
-    const { error: signUpError } = await supabase.auth.signUp({
+    const { data, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -60,19 +63,18 @@ export default function SignupPage() {
       },
     });
 
+    setLoading(false);
     if (signUpError) {
       setError(signUpError.message);
-      setLoading(false);
     } else {
-      setSuccess(
-        "Account created. Check your email to verify your address, then sign in and start debating."
-      );
-      setTimeout(() => {
-        setUsername("");
-        setEmail("");
-        setPassword("");
-        setConfirmPassword("");
-      }, 1500);
+      setSignedIn(Boolean(data.session));
+      setSuccess(data.session
+        ? "Account created. You are signed in and ready to debate."
+        : "Check your email for the confirmation link, then sign in and start debating.");
+      setUsername("");
+      setEmail("");
+      setPassword("");
+      setConfirmPassword("");
     }
   }
 
@@ -93,6 +95,8 @@ export default function SignupPage() {
             </p>
           </div>
 
+          <LocalAuthNotice />
+
           {error && (
             <div
               role="alert"
@@ -103,8 +107,9 @@ export default function SignupPage() {
           )}
 
           {success && (
-            <div className="mb-5 border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-emerald-200">
-              {success}
+            <div role="status" className="mb-5 border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-emerald-200">
+              <p>{success}</p>
+              {signedIn && <Link href="/dashboard" className="mt-3 inline-block font-semibold underline">Continue to dashboard</Link>}
             </div>
           )}
 

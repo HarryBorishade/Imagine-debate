@@ -1,4 +1,4 @@
-﻿# Password recovery and local sign-in
+# Password recovery and local sign-in
 
 Local preview accounts are separate from production Auth accounts. A production email/password pair does not create a local account. Sign up locally first. Local Auth catches password emails in Mailpit at http://127.0.0.1:54324; they do not arrive in Gmail or another external mailbox. The sign-in and recovery pages show this notice only when the configured Supabase API is loopback.
 
@@ -20,3 +20,6 @@ Run it from `imagine-debate/`. The test verifies missing-link and ordinary-sessi
 The source-and-Git backup before this fix is in the private `login-recovery-20261121-201949` backup folder. Its restoration and Git state were verified. Installed dependencies/generated builds were excluded; local environment configuration was retained privately. No production rows were read or changed to diagnose the account shown in the screenshot; the existence check used only the local database.
 
 Official references: [password reset](https://supabase.com/docs/reference/javascript/auth-resetpasswordforemail), [recovery event handling](https://supabase.com/kb/troubleshooting/password-reset-link-logs-user-in-without-prompting-for-a-new-password-e51b22), [local Auth email testing](https://supabase.com/docs/guides/auth/testing-auth-flows).
+
+
+Signup feedback uses the actual Auth response: when a session is returned, the app says the account is signed in and offers a dashboard link. When no session is returned, it retains the email-confirmation instructions. This prevents automatic local confirmation from being presented as an outstanding verification step. The local signup-to-dashboard flow was exercised with a disposable account.
