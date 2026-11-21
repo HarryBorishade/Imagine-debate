@@ -28,7 +28,7 @@ const FAQ_ITEMS: Array<{ q: string; a: string }> = [
   },
   {
     q: "How do ratings work?",
-    a: "Every player has a rating that starts at 400 and moves after each completed debate using an Elo-style calculation — beat a higher-rated opponent and you gain more points; lose to a lower-rated one and you lose more. Wins, losses, and draws are tracked on your dashboard. Forfeits (leaving mid-debate) count as a loss.",
+    a: "Every player has a rating that starts at 400 and moves after each ranked debate using an Elo-style calculation — beat a higher-rated opponent and you gain more points; lose to a lower-rated one and you lose more. Wins, losses, and draws are tracked on your dashboard. Forfeits (leaving a ranked debate) count as a loss. Unranked debates do not change ratings.",
   },
   {
     q: "What happens if my opponent leaves or disconnects?",

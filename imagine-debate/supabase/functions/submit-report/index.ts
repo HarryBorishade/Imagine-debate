@@ -10,7 +10,6 @@ const corsHeaders = {
 
 const MIN_REASON_LENGTH = 10;
 const MAX_REASON_LENGTH = 2000;
-const REPORT_RECIPIENT = "debateimagine@gmail.com";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -48,8 +47,10 @@ serve(async (request: Request): Promise<Response> => {
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const resendApiKey = Deno.env.get("RESEND_API_KEY");
+  const reportRecipient = Deno.env.get("REPORT_RECIPIENT");
+  const reportSender = Deno.env.get("REPORT_FROM_EMAIL");
 
-  if (!supabaseUrl || !anonKey || !serviceRoleKey || !resendApiKey) {
+  if (!supabaseUrl || !anonKey || !serviceRoleKey) {
     return jsonResponse(
       {
         error:
@@ -184,36 +185,34 @@ serve(async (request: Request): Promise<Response> => {
       <p>Look this up in the Supabase dashboard — table <code>debates</code>, id <code>${escapeHtml(debateId)}</code>; table <code>reports</code>, id <code>${insertedReport.id}</code>.</p>
     `;
 
-    const emailResponse = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${resendApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: "Imagine Debate <onboarding@resend.dev>",
-        to: REPORT_RECIPIENT,
-        subject: `[Report] Debate #${debateId} — ${reporterUsername} reported ${reportedUsername}`,
-        html: emailHtml,
-      }),
-    });
-
-    if (!emailResponse.ok) {
-      const errorBody = await emailResponse.text();
-
-      // The report row is already saved — a failed email is logged, not
-      // thrown, so the reporter still sees success and the report is still
-      // on record for later lookup even if the email never arrives.
-      console.error(
-        `Resend email failed for report ${insertedReport.id}:`,
-        errorBody,
-      );
-
-      return jsonResponse({
-        success: true,
-        reportId: insertedReport.id,
-        emailSent: false,
+    // The report is already saved. Notification outages must not turn a
+    // successful report into an error that encourages duplicate submissions.
+    if (!resendApiKey || !reportRecipient || !reportSender) {
+      console.error(`Report ${insertedReport.id} saved without email notification: email is not configured.`);
+      return jsonResponse({ success: true, reportId: insertedReport.id, emailSent: false });
+    }
+    try {
+      const emailResponse = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${resendApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: reportSender,
+          to: reportRecipient,
+          subject: `[Report] Debate #${debateId} - ${reporterUsername} reported ${reportedUsername}`,
+          html: emailHtml,
+        }),
       });
+
+      if (!emailResponse.ok) {
+        console.error(`Resend email failed for report ${insertedReport.id}:`, await emailResponse.text());
+        return jsonResponse({ success: true, reportId: insertedReport.id, emailSent: false });
+      }
+    } catch (notificationError) {
+      console.error(`Report ${insertedReport.id} saved but notification failed:`, notificationError);
+      return jsonResponse({ success: true, reportId: insertedReport.id, emailSent: false });
     }
 
     return jsonResponse({

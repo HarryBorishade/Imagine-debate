@@ -67,6 +67,7 @@ interface DebateAppraisal {
 
 interface DebateRow {
   topic: string | null;
+  format_version: string;
   appraisal_status: AppraisalStatus;
   appraisal_error: string | null;
   appraisal_result: DebateAppraisal | null;
@@ -136,7 +137,7 @@ export default function DebateOutcomeWaiting() {
   const isValidDebateId = /^\d{4}$/.test(debateId);
 
   const [debateName, setDebateName] = useState("");
-  const [mySide, setMySide] = useState<DebateSide | null>(null);
+  const [storedSide, setStoredSide] = useState<DebateSide | null>(null);
   const [secondsWaiting, setSecondsWaiting] = useState(0);
   const [appraisalStatus, setAppraisalStatus] =
     useState<AppraisalStatus>(null);
@@ -156,6 +157,7 @@ export default function DebateOutcomeWaiting() {
     winningSide: Verdict | null;
   } | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [format, setFormat] = useState("classic_v1");
 
   useEffect(() => {
     if (!isValidDebateId) {
@@ -183,7 +185,7 @@ export default function DebateOutcomeWaiting() {
     }
 
     if (isDebateSide(storedSide)) {
-      setMySide(storedSide);
+      setStoredSide(storedSide);
     }
   }, [debateId, isValidDebateId]);
 
@@ -212,11 +214,7 @@ export default function DebateOutcomeWaiting() {
     return null;
   }, [myUserId, participantIds]);
 
-  useEffect(() => {
-    if (derivedSide) {
-      setMySide(derivedSide);
-    }
-  }, [derivedSide]);
+  const mySide = derivedSide ?? storedSide;
 
   const loadDebateState = useCallback(async (): Promise<DebateRow | null> => {
     if (!isValidDebateId) return null;
@@ -224,7 +222,7 @@ export default function DebateOutcomeWaiting() {
     const { data, error } = await supabase
       .from("debates")
       .select(
-        "topic, appraisal_status, appraisal_error, appraisal_result, for_player_id, against_player_id, ended_reason, winning_side"
+        "topic, format_version, appraisal_status, appraisal_error, appraisal_result, for_player_id, against_player_id, ended_reason, winning_side"
       )
       .eq("id", debateId)
       .maybeSingle();
@@ -242,6 +240,7 @@ export default function DebateOutcomeWaiting() {
     }
 
     const debate = data as DebateRow;
+    setFormat(debate.format_version);
 
     if (debate.topic) {
       setDebateName(debate.topic);
@@ -664,7 +663,7 @@ export default function DebateOutcomeWaiting() {
 
                       {msg.argumentPart && (
                         <span className="text-[10px] uppercase tracking-wide text-muted-2">
-                          {ARGUMENT_PART_LABELS[msg.argumentPart] ?? msg.argumentPart}
+                          {format === "open_exchange_v1" && (msg.argumentPart === "rebuttal" || msg.argumentPart === "counter_rebuttal") ? "Open exchange" : ARGUMENT_PART_LABELS[msg.argumentPart] ?? msg.argumentPart}
                         </span>
                       )}
                     </div>

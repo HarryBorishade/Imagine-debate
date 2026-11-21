@@ -64,6 +64,12 @@ export default function SettingsPage() {
     saving: boolean;
   }>({ saving: false });
 
+  // Searchable handle is separate from private account information.
+  const [socialHandle, setSocialHandle] = useState("");
+  const [discoverable, setDiscoverable] = useState(false);
+  const [socialAvailable, setSocialAvailable] = useState(false);
+  const [socialStatus, setSocialStatus] = useState<{ error?: string; success?: string; saving: boolean }>({ saving: false });
+
   // Email
   const [email, setEmail] = useState("");
   const [emailStatus, setEmailStatus] = useState<{
@@ -104,6 +110,14 @@ export default function SettingsPage() {
       setUser(sessionUser);
       setUsername(sessionUser.user_metadata?.username || "");
       setEmail(sessionUser.email || "");
+      const { data: social, error: socialError } = await supabase.rpc("social_get_profile");
+      if (socialError) {
+        setSocialStatus({ saving: false, error: "Friend settings are unavailable. Please try again later." });
+      } else {
+        setSocialAvailable(true);
+        setSocialHandle(social?.[0]?.handle || "");
+        setDiscoverable(social?.[0]?.discoverable === true);
+      }
       setLoading(false);
     }
 
@@ -139,6 +153,19 @@ export default function SettingsPage() {
     } else {
       setUsernameStatus({ saving: false, success: "Username updated." });
     }
+  }
+
+  async function handleSocialSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSocialStatus({ saving: true });
+    const { data, error } = await supabase.rpc("social_set_profile", {
+      p_handle: socialHandle.trim(), p_discoverable: discoverable,
+    });
+    setSocialStatus(error
+      ? { saving: false, error: error.message }
+      : data === "saved"
+        ? { saving: false, success: "Friend settings saved." }
+        : { saving: false, error: "That handle is unavailable." });
   }
 
   async function handleEmailSubmit(e: React.FormEvent) {
@@ -306,6 +333,22 @@ export default function SettingsPage() {
               >
                 {usernameStatus.saving ? "Saving…" : "Save username"}
               </button>
+            </form>
+          </Card>
+
+          <Card title="Friends and discovery" description="Choose a public handle separately from your room display name. Your email is never shown in search.">
+            <form onSubmit={handleSocialSubmit} className="space-y-4">
+              {socialStatus.error && <Banner kind="error" message={socialStatus.error} />}
+              {socialStatus.success && <Banner kind="success" message={socialStatus.success} />}
+              <div>
+                <label htmlFor="social-handle" className="mb-2 block text-sm font-medium text-cream">Public handle</label>
+                <input id="social-handle" value={socialHandle} onChange={(e) => setSocialHandle(e.target.value)} maxLength={20} autoComplete="off" className="w-full rounded-lg border border-line bg-black/20 px-4 py-3 text-sm text-cream sm:max-w-sm" />
+                <p className="mt-1 text-xs text-muted-2">3-20 letters, numbers or underscores. Handles are unique, ignoring case.</p>
+              </div>
+              <label className="flex items-start gap-3 text-sm text-muted"><input type="checkbox" checked={discoverable} onChange={(e) => setDiscoverable(e.target.checked)} className="mt-1" /> Allow signed-in users who know my exact handle to find me and send a friend request.</label>
+              <p className="text-xs text-muted-2">Off by default. Existing friends and people with pending requests can still see your handle when you turn discovery off.</p>
+              <button type="submit" disabled={!socialAvailable || socialStatus.saving || !/^[A-Za-z0-9_]{3,20}$/.test(socialHandle.trim())} className="rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-ink disabled:opacity-50">{socialStatus.saving ? "Saving..." : "Save friend settings"}</button>
+              <Link href="/friends" className="ml-4 text-sm text-accent hover:underline">Open friends</Link>
             </form>
           </Card>
 

@@ -210,15 +210,16 @@ export default function SignupPage() {
         </div>
 
         <p className="mt-6 text-center text-xs leading-5 text-muted-2">
-          By creating an account you agree to our{" "}
+          Please read our{" "}
+          <Link href="/community" className="underline-offset-4 hover:text-cream hover:underline">community rules</Link>,{" "}
           <Link href="/privacy" className="underline-offset-4 hover:text-cream hover:underline">
             privacy policy
           </Link>{" "}
           and{" "}
           <Link href="/cookies" className="underline-offset-4 hover:text-cream hover:underline">
-            cookie use
+            cookie information
           </Link>
-          .
+          . Optional analytics is controlled separately through cookie preferences.
         </p>
       </div>
     </div>

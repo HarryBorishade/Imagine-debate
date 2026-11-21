@@ -6,6 +6,7 @@ import { io, Socket } from "socket.io-client";
 import { supabase } from "@/supabaseClient";
 import { getSocketUrl } from "@/lib/socketUrl";
 import { fetchMessageHistory, type Message } from "@/lib/messageHistory";
+import { mergeMessageHistory } from "@/lib/mergeMessageHistory";
 import { readFunctionError } from "@/lib/functionInvoke";
 import { trackEvent } from "@/lib/analytics";
 
@@ -89,6 +90,7 @@ export default function DebateRoom() {
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const userIdRef = useRef<string | null>(null);
   const joinedRef = useRef(false);
+  const pendingMessageRef = useRef<{ content: string; turnIndex: number | null } | null>(null);
   const draftTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -110,6 +112,8 @@ export default function DebateRoom() {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
+  const [connected, setConnected] = useState(false);
+  const [sending, setSending] = useState(false);
 
   const [gracePeriod, setGracePeriod] = useState<GracePeriod | null>(null);
   const [result, setResult] = useState<DebateResult | null>(null);
@@ -129,7 +133,7 @@ export default function DebateRoom() {
     null
   );
   const [stageIndex, setStageIndex] = useState<number | null>(null);
-  const [, setTurnIndex] = useState<number | null>(null);
+  const [turnIndex, setTurnIndex] = useState<number | null>(null);
   const [totalStages, setTotalStages] = useState<number | null>(null);
   const [debateCompleted, setDebateCompleted] = useState(false);
 
@@ -231,6 +235,12 @@ export default function DebateRoom() {
       // Only nudge the loading copy so the wait doesn't look broken; the
       // overall timer above and reconnect_failed below handle genuine
       // failure.
+      socket.on("disconnect", () => {
+        setConnected(false);
+        setSending(false);
+        pendingMessageRef.current = null;
+      });
+
       socket.on("connect_error", (err) => {
         console.warn("Socket connect_error:", err.message);
 
@@ -293,6 +303,7 @@ export default function DebateRoom() {
           setTurnIndex(payload.turnIndex);
         }
 
+        setConnected(true);
         setGracePeriod(null);
         setResult(null);
         setDebateCompleted(false);
@@ -305,7 +316,11 @@ export default function DebateRoom() {
           // showing a half-empty room.
           void fetchMessageHistory(debateId).then((history) => {
             if (history.length > 0) {
-              setMessages(history);
+              const restored = history.map((message) => ({
+                ...message,
+                argumentPartLabel: message.stageIndex === undefined ? undefined : payload.stages?.[message.stageIndex]?.label,
+              }));
+              setMessages((current) => mergeMessageHistory(restored, current));
             }
             addSystemMessage("Reconnected to the debate.");
           });
@@ -313,6 +328,10 @@ export default function DebateRoom() {
       });
 
       socket.on("turn_started", (data: TurnPayload) => {
+        if (pendingMessageRef.current && pendingMessageRef.current.turnIndex !== data.turnIndex) {
+          pendingMessageRef.current = null;
+          setSending(false);
+        }
         setCurrentTurnUserId(data.currentTurnUserId);
         setSecondsLeft(data.secondsLeft);
         setTimePerTurn(data.timePerTurn);
@@ -325,7 +344,6 @@ export default function DebateRoom() {
         setTurnIndex(data.turnIndex);
         setTotalStages(data.totalStages);
 
-        setGracePeriod(null);
         setDebateCompleted(false);
 
         if (!data.resumed) {
@@ -387,18 +405,40 @@ export default function DebateRoom() {
         }
       );
 
+      socket.on("draft_blocked", ({ userId }: { userId: string }) => {
+        addSystemMessage(userId === session.user.id
+          ? "Your timed-out draft was not sent because it contained language the filter blocked."
+          : "A timed-out draft was not sent because it contained language the filter blocked.");
+      });
+
+      socket.on("turn_save_error", ({ userId }: { userId: string }) => {
+        addSystemMessage(userId === session.user.id
+          ? "Your draft could not be saved. You have more time to retry or pass."
+          : "The other player's draft could not be saved; their turn has been extended.");
+      });
+
       socket.on("turn_error", ({ message }: { message: string }) => {
+        pendingMessageRef.current = null;
+        setSending(false);
         setTurnError(message || "It is not your turn yet.");
         setTimeout(() => setTurnError(""), 2500);
       });
 
       socket.on("message_error", ({ message }: { message: string }) => {
+        pendingMessageRef.current = null;
+        setSending(false);
         setTurnError(message || "Your message could not be sent.");
         setTimeout(() => setTurnError(""), 2500);
       });
 
       socket.on("new_message", (msg: Message) => {
-        setMessages((prev) => [...prev, msg]);
+        const pending = pendingMessageRef.current;
+        if (msg.userId === userIdRef.current && pending && msg.turnIndex === pending.turnIndex && msg.content === pending.content) {
+          setInput((current) => current.trim() === pending.content ? "" : current);
+          pendingMessageRef.current = null;
+          setSending(false);
+        }
+        setMessages((prev) => msg.id !== undefined && prev.some((item) => item.id === msg.id) ? prev : [...prev, msg]);
       });
 
       socket.on(
@@ -498,23 +538,23 @@ export default function DebateRoom() {
   // Debounced draft sync — lets the server auto-submit whatever is in the
   // box if the timer runs out, instead of discarding it.
   useEffect(() => {
-    if (!isMyTurn || debateCompleted) return;
+    if (!isMyTurn || debateCompleted || !connected || gracePeriod) return;
 
     if (draftTimeoutRef.current) clearTimeout(draftTimeoutRef.current);
 
     draftTimeoutRef.current = setTimeout(() => {
-      socketRef.current?.emit("draft_update", { debateId, content: input });
+      if (socketRef.current?.connected) socketRef.current.emit("draft_update", { debateId, content: input });
     }, DRAFT_SYNC_DEBOUNCE_MS);
 
     return () => {
       if (draftTimeoutRef.current) clearTimeout(draftTimeoutRef.current);
     };
-  }, [input, isMyTurn, debateCompleted, debateId]);
+  }, [input, isMyTurn, debateCompleted, debateId, connected, gracePeriod]);
 
   const sendMessage = useCallback(() => {
     const trimmed = input.trim();
 
-    if (!socketRef.current || !trimmed || debateCompleted) return;
+    if (!socketRef.current?.connected || !connected || !isMyTurn || gracePeriod || pendingMessageRef.current || !trimmed || debateCompleted || turnIndex === null) return;
 
     if (countWords(trimmed) > MAX_MESSAGE_WORDS) {
       setTurnError(`Keep your message to ${MAX_MESSAGE_WORDS} words or fewer.`);
@@ -522,25 +562,30 @@ export default function DebateRoom() {
       return;
     }
 
-    socketRef.current.emit("send_message", {
-      debateId,
-      content: trimmed,
-    });
-
-    setInput("");
-  }, [debateId, input, debateCompleted]);
+    const pending = { content: trimmed, turnIndex };
+    pendingMessageRef.current = pending;
+    setSending(true);
+    setTimeout(() => {
+      if (pendingMessageRef.current === pending) {
+        pendingMessageRef.current = null;
+        setSending(false);
+        setTurnError("Could not confirm the send. Check the transcript before trying again; your text is still here.");
+      }
+    }, 10000);
+    socketRef.current.emit("send_message", { debateId, content: trimmed, expectedTurnIndex: turnIndex });
+  }, [debateId, input, debateCompleted, connected, isMyTurn, gracePeriod, turnIndex]);
 
   const passTurn = useCallback(() => {
     if (
-      !socketRef.current ||
+      !socketRef.current?.connected || !connected || gracePeriod || sending || turnIndex === null ||
       currentTurnUserId !== userIdRef.current ||
       debateCompleted
     ) {
       return;
     }
 
-    socketRef.current.emit("pass_turn", { debateId });
-  }, [currentTurnUserId, debateId, debateCompleted]);
+    socketRef.current.emit("pass_turn", { debateId, expectedTurnIndex: turnIndex });
+  }, [currentTurnUserId, debateId, debateCompleted, connected, gracePeriod, sending, turnIndex]);
 
   const handleComposerKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter sends (desktop convention); Shift+Enter inserts a newline. Touch
@@ -802,7 +847,7 @@ export default function DebateRoom() {
                   Thanks — we&apos;ll take a look
                 </h2>
                 <p className="text-muted text-sm leading-relaxed mb-6">
-                  Your report has been recorded and sent to the site owner.
+                  Your report has been recorded.
                 </p>
                 <button
                   onClick={closeReportDialog}
@@ -923,6 +968,12 @@ export default function DebateRoom() {
           </div>
         </div>
       </div>
+
+      {!connected && (
+        <div role="status" className="flex-none px-4 py-3 text-center text-sm text-amber-300 bg-amber-400/10">
+          Connection interrupted. Reconnecting to the debate; your unsent text stays here.
+        </div>
+      )}
 
       {gracePeriod && (
         <div className="flex-none px-4 py-2 sm:px-6">
@@ -1062,16 +1113,16 @@ export default function DebateRoom() {
               <button
                 onClick={sendMessage}
                 disabled={
-                  !input.trim() || !isMyTurn || debateCompleted || isOverWordLimit
+                  !input.trim() || !isMyTurn || debateCompleted || isOverWordLimit || !connected || !!gracePeriod || sending
                 }
                 className="flex-1 rounded-lg bg-accent hover:bg-accent-strong disabled:bg-white/10 disabled:text-white/30 disabled:cursor-not-allowed text-[#0d1117] px-6 py-3 text-sm font-semibold transition-colors sm:flex-none"
               >
-                Send
+                {sending ? "Sending?" : "Send"}
               </button>
 
               <button
                 onClick={passTurn}
-                disabled={!isMyTurn || debateCompleted}
+                disabled={!isMyTurn || debateCompleted || !connected || !!gracePeriod || sending}
                 className="flex-1 rounded-lg bg-black/20 hover:bg-white/8 disabled:bg-white/5 disabled:text-white/20 disabled:cursor-not-allowed text-cream border border-line px-5 py-3 text-sm font-semibold transition-colors sm:flex-none"
               >
                 Pass

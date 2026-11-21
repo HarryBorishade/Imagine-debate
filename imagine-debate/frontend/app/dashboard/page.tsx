@@ -200,6 +200,7 @@ export default function Dashboard() {
             >
               Home
             </Link>
+            <Link href="/friends" className="rounded-lg border border-line px-4 py-2 text-sm font-semibold text-[#d7d0c2] transition-colors hover:bg-white/8">Friends</Link>
             <Link
               href="/settings"
               className="rounded-lg border border-line px-4 py-2 text-sm font-semibold text-[#d7d0c2] transition-colors hover:bg-white/8"
@@ -363,8 +364,8 @@ export default function Dashboard() {
           <section className="card-panel p-5">
             <h2 className="eyebrow">Retention</h2>
             <p className="mt-4 text-sm leading-6 text-muted">
-              Debate rows older than 30 days are expected to be deleted from
-              Supabase, so the longest dashboard view is capped at 30 days.
+              The dashboard shows up to 30 days of history. This display limit
+              does not indicate when stored data is deleted.
             </p>
           </section>
         </aside>

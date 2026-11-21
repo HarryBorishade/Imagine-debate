@@ -3,21 +3,11 @@ import express from "express";
 import cors from "cors";
 import { Server, Socket } from "socket.io";
 import dotenv from "dotenv";
-import {
-  RegExpMatcher,
-  englishDataset,
-  englishRecommendedTransformers,
-} from "obscenity";
 import { supabase } from "./supabase/supabaseClient.js";
+import { speakerIndex, type DebateFormat } from "./debateFormat.js";
+import { containsBlockedLanguage, prepareTimeoutDraft } from "./moderation.js";
 
 dotenv.config();
-
-// Built once at module load — matcher construction isn't free, and the
-// word list doesn't change at runtime.
-const profanityMatcher = new RegExpMatcher({
-  ...englishDataset.build(),
-  ...englishRecommendedTransformers,
-});
 
 const FRONTEND_ORIGINS = (process.env.FRONTEND_URL || "http://localhost:3000")
   .split(",")
@@ -119,6 +109,15 @@ const DEBATE_STAGES: DebateStage[] = [
   },
 ];
 
+// Reuse existing transcript stage values so historical readers and database
+// constraints continue to work. Labels are format-specific.
+const OPEN_STAGES: DebateStage[] = [
+  { argumentPart: "opening_statement", label: "Opening" },
+  { argumentPart: "rebuttal", label: "Open exchange" },
+  { argumentPart: "counter_rebuttal", label: "Open exchange" },
+  { argumentPart: "closing_statement", label: "Closing" },
+];
+
 interface DebateRoom {
   status: DebateStatus;
   readyState: Record<string, boolean>;
@@ -128,6 +127,7 @@ interface DebateRoom {
   debateName: string;
   timePerTurn: number;
   ranked: boolean;
+  format: DebateFormat;
 
   turnOrder?: [string, string];
   currentTurn?: string;
@@ -136,6 +136,8 @@ interface DebateRoom {
   currentStageIndex: number;
   currentSpeakerIndex: number;
   turnIndex: number;
+  turnInFlight: boolean;
+  starting: boolean;
 
   /** Latest unsent draft per user, so a turn that times out can submit
    *  whatever the player had typed instead of discarding it. */
@@ -152,6 +154,7 @@ interface DebateMeta {
   status: string;
   appraisalStatus: string | null;
   ranked: boolean;
+  format: DebateFormat;
 }
 
 const debateMetaCache: Record<string, DebateMeta> = {};
@@ -242,9 +245,12 @@ function getRoom(debateId: string): DebateRoom {
     debateName: debateId,
     timePerTurn: DEFAULT_TURN_SECONDS,
     ranked: true,
+    format: "classic_v1",
     currentStageIndex: 0,
     currentSpeakerIndex: 0,
     turnIndex: 0,
+    turnInFlight: false,
+    starting: false,
     drafts: {},
   };
 
@@ -280,8 +286,12 @@ async function applyDebateResult(
   }
 }
 
+function getStages(room: DebateRoom): DebateStage[] {
+  return room.format === "open_exchange_v1" ? OPEN_STAGES : DEBATE_STAGES;
+}
+
 function getCurrentStage(room: DebateRoom): DebateStage | null {
-  return DEBATE_STAGES[room.currentStageIndex] ?? null;
+  return getStages(room)[room.currentStageIndex] ?? null;
 }
 
 function getCurrentSide(room: DebateRoom): Side | null {
@@ -306,7 +316,7 @@ async function persistAndBroadcastMessage(
 ): Promise<boolean> {
   const currentStage = getCurrentStage(room);
 
-  if (!currentStage) return false;
+  if (!currentStage || containsBlockedLanguage(content)) return false;
 
   const side = room.sides[userId] ?? null;
   const messageDebateId = getMessageDebateId(debateId);
@@ -367,7 +377,7 @@ function buildTurnPayload(debateId: string, room: DebateRoom) {
     stageIndex: room.currentStageIndex,
     speakerIndex: room.currentSpeakerIndex,
     turnIndex: room.turnIndex,
-    totalStages: DEBATE_STAGES.length,
+    totalStages: getStages(room).length,
     secondsLeft: room.turnSecondsLeft,
     timePerTurn: room.timePerTurn,
   };
@@ -480,7 +490,7 @@ async function fetchDebateMeta(
 
   const { data, error } = await supabase
     .from("debates")
-    .select("topic, time_per_turn, status, appraisal_status, ranked")
+    .select("topic, time_per_turn, status, appraisal_status, ranked, format_version")
     .eq("id", debateId)
     .maybeSingle();
 
@@ -505,6 +515,7 @@ async function fetchDebateMeta(
     // matching the appraisalStatus style above — a debate row from before
     // this column existed should behave like a ranked debate always did.
     ranked: data.ranked !== false,
+    format: data.format_version === "open_exchange_v1" ? "open_exchange_v1" : "classic_v1",
   };
 
   debateMetaCache[debateId] = meta;
@@ -556,6 +567,7 @@ function emitLobbyState(debateId: string, excludeSocketId?: string) {
     status: room?.status ?? "waiting",
     debateName: room?.debateName ?? debateId,
     timePerTurn: room?.timePerTurn ?? DEFAULT_TURN_SECONDS,
+    format: room?.format ?? "classic_v1",
   });
 }
 
@@ -602,6 +614,8 @@ function tickTurnTimer(debateId: string) {
       return;
     }
 
+    // A message save must finish before a timeout or pass can advance the turn.
+    if (room.turnInFlight) return;
     room.turnSecondsLeft -= 1;
 
     if (room.turnSecondsLeft <= 0) {
@@ -624,25 +638,31 @@ function tickTurnTimer(debateId: string) {
 
       // If the player had typed something, send it for them instead of
       // discarding it — only a truly empty box costs them the turn outright.
-      const draft = timedOutUserId ? room.drafts[timedOutUserId]?.trim() : "";
+      const draft = prepareTimeoutDraft(
+        timedOutUserId ? room.drafts[timedOutUserId] ?? "" : "",
+        MAX_MESSAGE_WORDS
+      );
 
-      if (timedOutUserId && draft) {
-        const words = draft.split(/\s+/).filter(Boolean);
-        const clamped =
-          words.length > MAX_MESSAGE_WORDS
-            ? words.slice(0, MAX_MESSAGE_WORDS).join(" ")
-            : draft;
-
-        void persistAndBroadcastMessage(
-          debateId,
-          room,
-          timedOutUserId,
-          clamped
-        ).then(() => {
-          // advanceTurn clears the draft either way, so a failed save never
-          // leaves the player stuck mid-turn.
-          advanceTurn(debateId);
-        });
+      if (timedOutUserId && draft.kind === "blocked") {
+        io.to(roomKey(debateId)).emit("draft_blocked", { userId: timedOutUserId });
+      }
+      if (timedOutUserId && draft.kind === "ready") {
+        room.turnInFlight = true;
+        void persistAndBroadcastMessage(debateId, room, timedOutUserId, draft.content)
+          .catch(() => false)
+          .then((saved) => {
+            room.turnInFlight = false;
+            if (rooms[debateId] !== room || room.status !== "active" || room.currentTurn !== timedOutUserId) return;
+            if (saved) {
+              advanceTurn(debateId);
+            } else {
+              // Keep the draft and give the player a chance to retry or pass.
+              room.turnSecondsLeft = 10;
+              io.to(roomKey(debateId)).emit("turn_save_error", { userId: timedOutUserId });
+              io.to(roomKey(debateId)).emit("turn_started", { ...buildTurnPayload(debateId, room), resumed: true });
+              tickTurnTimer(debateId);
+            }
+          });
         return;
       }
 
@@ -675,7 +695,7 @@ function startTurn(debateId: string, userId: string) {
 
   io.to(roomKey(debateId)).emit("turn_started", buildTurnPayload(debateId, room));
 
-  tickTurnTimer(debateId);
+  if (!gracePeriodTimers[debateId]) tickTurnTimer(debateId);
 }
 
 function advanceTurn(debateId: string) {
@@ -708,7 +728,7 @@ function advanceTurn(debateId: string) {
     return;
   }
 
-  const nextUserId = room.turnOrder[room.currentSpeakerIndex];
+  const nextUserId = room.turnOrder[speakerIndex(room.format, room.currentStageIndex, room.currentSpeakerIndex)];
 
   startTurn(debateId, nextUserId);
 }
@@ -724,15 +744,7 @@ function resumeTurnTimer(debateId: string) {
     return;
   }
 
-  io.to(roomKey(debateId)).emit("turn_started", {
-    debateId,
-    debateName: room.debateName,
-    currentTurnUserId: room.currentTurn,
-    currentTurnUsername: room.playerNames[room.currentTurn] ?? "Player",
-    secondsLeft: room.turnSecondsLeft,
-    timePerTurn: room.timePerTurn,
-    resumed: true,
-  });
+  io.to(roomKey(debateId)).emit("turn_started", { ...buildTurnPayload(debateId, room), resumed: true });
 
   tickTurnTimer(debateId);
 }
@@ -998,10 +1010,17 @@ io.on("connection", (socket: Socket) => {
         return;
       }
 
+      // A process restart loses live room state; never restart an active
+      // database row as a new lobby with different participants.
+      if (meta.status === "active" && !rooms[debateId]) {
+        socket.emit("join_error", { message: "This active debate cannot be resumed after a server restart. Please contact support." });
+        return;
+      }
       const room = getRoom(debateId);
       room.debateName = meta.name;
       room.timePerTurn = meta.timePerTurn;
       room.ranked = meta.ranked;
+      room.format = meta.format;
       room.playerNames[user.id] = user.username;
 
       const connectedPlayersBeforeJoin = getConnectedPlayers(debateId);
@@ -1047,14 +1066,11 @@ io.on("connection", (socket: Socket) => {
         }));
 
         socket.emit("debate_started", {
-          debateId,
-          debateName: room.debateName,
-          timePerTurn: room.timePerTurn,
+          ...buildTurnPayload(debateId, room),
           players,
           startTime: null,
           reconnect: true,
-          currentTurnUserId: room.currentTurn,
-          secondsLeft: room.turnSecondsLeft,
+          stages: getStages(room),
         });
 
         return;
@@ -1077,11 +1093,11 @@ io.on("connection", (socket: Socket) => {
   );
 
   socket.on("choose_side", ({ debateId, side }: { debateId: string; side: Side }) => {
-    if (!debateId || (side !== "for" && side !== "against")) return;
+    if (!debateId || !socket.rooms.has(roomKey(debateId)) || (side !== "for" && side !== "against")) return;
 
     const room = rooms[debateId];
 
-    if (!room || room.status !== "waiting") return;
+    if (!room || room.status !== "waiting" || room.starting) return;
 
     const players = getConnectedPlayers(debateId);
     const opponent = players.find((player) => player.id !== user.id);
@@ -1105,11 +1121,11 @@ io.on("connection", (socket: Socket) => {
   // neutral — the escape hatch for "both players picked the same side"
   // without either of them leaving the lobby.
   socket.on("unchoose_side", ({ debateId }: { debateId: string }) => {
-    if (!debateId) return;
+    if (!debateId || !socket.rooms.has(roomKey(debateId))) return;
 
     const room = rooms[debateId];
 
-    if (!room || room.status !== "waiting") return;
+    if (!room || room.status !== "waiting" || room.starting) return;
 
     delete room.sideChoice[user.id];
     room.readyState[user.id] = false;
@@ -1119,12 +1135,12 @@ io.on("connection", (socket: Socket) => {
     emitLobbyState(debateId);
   });
 
-  socket.on("player_ready", ({ debateId }: { debateId: string }) => {
-    if (!debateId) return;
+  socket.on("player_ready", async ({ debateId }: { debateId: string }) => {
+    if (!debateId || !socket.rooms.has(roomKey(debateId))) return;
 
     const room = rooms[debateId];
 
-    if (!room || room.status !== "waiting") return;
+    if (!room || room.status !== "waiting" || room.starting) return;
 
     if (!room.sideChoice[user.id]) {
       socket.emit("side_conflict", {
@@ -1181,11 +1197,55 @@ io.on("connection", (socket: Socket) => {
         return;
       }
 
+      room.starting = true;
+      const startTimeIso = new Date().toISOString();
+      try {
+        // The database record must identify both participants before the
+        // room starts: RLS, reporting and judging all depend on these IDs.
+        const { data: started, error } = await supabase
+          .from("debates")
+          .update({
+            status: "active",
+            for_player_id: forPlayer.id,
+            against_player_id: againstPlayer.id,
+            started_at: startTimeIso,
+          })
+          .eq("id", debateId)
+          .eq("status", "waiting")
+          .select("id")
+          .maybeSingle();
+        if (error || !started) throw new Error(error?.message ?? "The waiting debate could not be updated.");
+
+        const connected = getConnectedPlayers(debateId);
+        if (rooms[debateId] !== room || !connected.some((p) => p.id === forPlayer.id) || !connected.some((p) => p.id === againstPlayer.id)) {
+          // A player left while the write was in flight. Reopen only the
+          // exact record we just wrote; never start an incomplete room.
+          const { error: rollbackError } = await supabase.from("debates")
+            .update({ status: "waiting", for_player_id: null, against_player_id: null, started_at: null })
+            .eq("id", debateId).eq("status", "active")
+            .eq("for_player_id", forPlayer.id).eq("against_player_id", againstPlayer.id);
+          delete debateMetaCache[debateId];
+          if (rollbackError) console.error(`Failed to reopen debate ${debateId}:`, rollbackError.message);
+          throw new Error("A player left before the debate started.");
+        }
+      } catch (error) {
+        room.starting = false;
+        if (rooms[debateId] === room) {
+          for (const player of getConnectedPlayers(debateId)) room.readyState[player.id] = false;
+          io.to(roomKey(debateId)).emit("side_conflict", {
+            message: "The debate could not start. Please check that both players are connected and try again.",
+          });
+          emitLobbyState(debateId);
+        }
+        console.error(`Could not start debate ${debateId}:`, error);
+        return;
+      }
+      delete debateMetaCache[debateId];
+      room.starting = false;
       room.sides = {
         [forPlayer.id]: "for",
         [againstPlayer.id]: "against",
       };
-
       room.turnOrder = [forPlayer.id, againstPlayer.id];
       room.status = "active";
       room.readyState = {};
@@ -1193,30 +1253,6 @@ io.on("connection", (socket: Socket) => {
       room.currentSpeakerIndex = 0;
       room.turnIndex = 0;
       room.drafts = {};
-
-      const startTimeIso = new Date().toISOString();
-
-      // Persist in parallel — the in-memory state above is authoritative for
-      // the running debate, so don't add a database round-trip to the
-      // player-facing start latency. A missed write here only affects
-      // dashboard/RLS visibility, never gameplay, so it's logged, not fatal.
-      void supabase
-        .from("debates")
-        .update({
-          status: "active",
-          for_player_id: forPlayer.id,
-          against_player_id: againstPlayer.id,
-          started_at: startTimeIso,
-        })
-        .eq("id", debateId)
-        .then(({ error }: { error: { message: string } | null }) => {
-          if (error) {
-            console.error(
-              `❌ Failed to mark debate ${debateId} active in Supabase:`,
-              error.message
-            );
-          }
-        });
 
       const payload = players.map((player) => ({
         ...player,
@@ -1228,7 +1264,7 @@ io.on("connection", (socket: Socket) => {
         debateName: room.debateName,
         timePerTurn: room.timePerTurn,
         players: payload,
-        stages: DEBATE_STAGES,
+        stages: getStages(room),
         startTime: startTimeIso,
         reconnect: false,
       });
@@ -1241,11 +1277,11 @@ io.on("connection", (socket: Socket) => {
   });
 
   socket.on("player_unready", ({ debateId }: { debateId: string }) => {
-    if (!debateId) return;
+    if (!debateId || !socket.rooms.has(roomKey(debateId))) return;
 
     const room = rooms[debateId];
 
-    if (!room || room.status !== "waiting") return;
+    if (!room || room.status !== "waiting" || room.starting) return;
 
     room.readyState[user.id] = false;
 
@@ -1256,13 +1292,18 @@ io.on("connection", (socket: Socket) => {
 
   socket.on(
     "send_message",
-    async ({ debateId, content }: { debateId: string; content: string }) => {
+    async ({ debateId, content, expectedTurnIndex }: { debateId: string; content: string; expectedTurnIndex?: number }) => {
       try {
-        if (!debateId || !content?.trim()) return;
+        if (!debateId || !socket.rooms.has(roomKey(debateId)) || typeof content !== "string" || !content.trim()) return;
 
         const room = rooms[debateId];
 
-        if (!room || room.status !== "active") return;
+        if (!room || room.status !== "active" || room.turnInFlight) return;
+
+        if (gracePeriodTimers[debateId] || (expectedTurnIndex !== undefined && expectedTurnIndex !== room.turnIndex)) {
+          socket.emit("message_error", { message: "The turn changed or the debate is paused. Check the room before sending again." });
+          return;
+        }
 
         if (room.currentTurn !== user.id) {
           socket.emit("turn_error", {
@@ -1280,7 +1321,7 @@ io.on("connection", (socket: Socket) => {
           return;
         }
 
-        if (profanityMatcher.hasMatch(cleanContent)) {
+        if (containsBlockedLanguage(cleanContent)) {
           socket.emit("message_error", {
             message:
               "Your message contains language that isn't allowed here. Please revise it and resend.",
@@ -1288,12 +1329,14 @@ io.on("connection", (socket: Socket) => {
           return;
         }
 
-        const saved = await persistAndBroadcastMessage(
-          debateId,
-          room,
-          user.id,
-          cleanContent
-        );
+        room.turnInFlight = true;
+        let saved: boolean;
+        try {
+          saved = await persistAndBroadcastMessage(debateId, room, user.id, cleanContent);
+        } finally {
+          room.turnInFlight = false;
+        }
+        if (rooms[debateId] !== room || room.status !== "active" || room.currentTurn !== user.id) return;
 
         if (!saved) {
           socket.emit("message_error", {
@@ -1319,7 +1362,7 @@ io.on("connection", (socket: Socket) => {
   socket.on(
     "draft_update",
     ({ debateId, content }: { debateId: string; content: string }) => {
-      if (!debateId || typeof content !== "string") return;
+      if (!debateId || !socket.rooms.has(roomKey(debateId)) || typeof content !== "string") return;
 
       const room = rooms[debateId];
 
@@ -1334,12 +1377,17 @@ io.on("connection", (socket: Socket) => {
   );
 
 
-  socket.on("pass_turn", async ({ debateId }: { debateId: string }) => {
-    if (!debateId) return;
+  socket.on("pass_turn", async ({ debateId, expectedTurnIndex }: { debateId: string; expectedTurnIndex?: number }) => {
+    if (!debateId || !socket.rooms.has(roomKey(debateId))) return;
 
     const room = rooms[debateId];
 
-    if (!room || room.status !== "active") return;
+    if (!room || room.status !== "active" || room.turnInFlight) return;
+
+    if (gracePeriodTimers[debateId] || (expectedTurnIndex !== undefined && expectedTurnIndex !== room.turnIndex)) {
+      socket.emit("turn_error", { message: "The turn changed or the debate is paused. Check the room before passing." });
+      return;
+    }
 
     if (room.currentTurn !== user.id) {
       socket.emit("turn_error", {
@@ -1366,7 +1414,7 @@ io.on("connection", (socket: Socket) => {
 
 
   socket.on("leave_debate", ({ debateId }: { debateId: string }) => {
-    if (!debateId) return;
+    if (!debateId || !socket.rooms.has(roomKey(debateId))) return;
 
     socket.leave(roomKey(debateId));
 

@@ -1,3 +1,5 @@
+/* This launcher is CommonJS because the frontend package is not an ES module. */
+/* eslint-disable @typescript-eslint/no-require-imports */
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");

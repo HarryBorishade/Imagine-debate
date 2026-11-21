@@ -18,6 +18,7 @@ interface LobbyStatePayload {
   status: "waiting" | "active" | "completed";
   debateName: string;
   timePerTurn: number;
+  format: "classic_v1" | "open_exchange_v1";
 }
 
 interface DebateStage {
@@ -61,6 +62,8 @@ export default function DebateLobby() {
   const everConnectedRef = useRef(false);
 
   const [players, setPlayers] = useState<Player[]>([]);
+  const [format, setFormat] = useState<"classic_v1" | "open_exchange_v1">("classic_v1");
+  const [turnSeconds, setTurnSeconds] = useState(120);
   const [stage, setStage] = useState<LobbyStage>("waiting");
   const [countdown, setCountdown] = useState(3);
   const [loading, setLoading] = useState(true);
@@ -167,6 +170,8 @@ export default function DebateLobby() {
 
       socket.on("lobby_state", (data: LobbyStatePayload) => {
         setPlayers(data.players);
+        setFormat(data.format);
+        setTurnSeconds(data.timePerTurn);
 
         const me = data.players.find((p) => p.id === session.user.id);
 
@@ -484,6 +489,10 @@ export default function DebateLobby() {
   return (
     <div className="min-h-screen bg-ink flex items-center justify-center p-6">
       <div className="max-w-2xl w-full">
+        <div className="rounded-xl border border-line bg-surface p-4 mb-5 text-sm text-muted" role="status">
+          <strong className="text-cream">{format === "open_exchange_v1" ? "Open exchange ? Unranked" : "Structured debate"}</strong>
+          <p className="mt-1">{format === "open_exchange_v1" ? "Four turns each: an opening, two open exchanges and a closing. Ask questions, respond or make your case in your own way." : "Seven stages each, from opening statement to closing statement."} {turnSeconds} seconds per turn; up to 100 words per message.</p>
+        </div>
         {stage === "waiting" && (
           <div className="card-panel border-t-2 border-t-accent p-8 text-center sm:p-12">
             <div className="mb-8">
@@ -673,7 +682,7 @@ export default function DebateLobby() {
 
             <p className="text-muted-2 text-sm">
               &ldquo;For&rdquo; begins with the Opening Statement. The debate
-              will then move through each stage in order.
+              will then take turns according to the selected mode.
             </p>
           </div>
         )}

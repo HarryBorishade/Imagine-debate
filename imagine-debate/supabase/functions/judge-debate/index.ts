@@ -155,10 +155,11 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function formatTranscript(messages: DebateMessage[]): string {
+function formatTranscript(messages: DebateMessage[], format: string): string {
   return messages
     .map((message, index) => {
-      const stage = message.argument_part ?? "unspecified-stage";
+      const rawStage = message.argument_part ?? "unspecified-stage";
+      const stage = format === "open_exchange_v1" && (rawStage === "rebuttal" || rawStage === "counter_rebuttal") ? "open exchange" : rawStage;
       const username = message.sender_username ?? "Unknown participant";
 
       return [
@@ -521,7 +522,7 @@ serve(async (request: Request): Promise<Response> => {
     const { data: debate, error: debateError } = await supabase
       .from("debates")
       .select(
-        "id, topic, appraisal_status, appraisal_result, for_player_id, against_player_id, created_by, ranked",
+        "id, topic, appraisal_status, appraisal_result, for_player_id, against_player_id, created_by, ranked, format_version",
       )
       .eq("id", debateId)
       .maybeSingle();
@@ -636,7 +637,7 @@ serve(async (request: Request): Promise<Response> => {
       );
     }
 
-    const transcript = formatTranscript(typedMessages);
+    const transcript = formatTranscript(typedMessages, debate.format_version);
 
     const firstPrompt = buildInitialPrompt(debate.topic, transcript);
 
