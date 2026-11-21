@@ -1,4 +1,4 @@
-﻿# Release readiness after the 21 November handover
+# Release readiness after the 21 November handover
 
 This checkout starts from pushed commit `af0cf77` and incorporates the interrupted release export supplied by the owner. The five migration records below are reported applied by the supplied handover and release checks. Their SQL is copied exactly from that export and recorded in `supabase/release-migration-records.json`; this session has not independently read production history. No database migrations or Edge Functions were deployed by this session.
 
@@ -66,3 +66,6 @@ Obtain an isolated schema baseline and synthetic accounts, then verify all appli
 The reported production cleanup schedules are hourly at minute 0 and daily at 03:15 UTC, both as postgres. The Docker tests use accelerated synthetic jobs to prove permissions and invocation, not live retention semantics or production execution. Inspect actual job history without exposing stored commands, and verify direct, indirect and external callers. The pending verification detects active commands containing the two function names; missing cron metadata, indirect calls and external schedulers need their own checks.
 
 After staging evidence is reviewed, reconcile history, inspect the target's dry-run plan, apply only the approved pending SQL, deploy Edge Functions, then backend and frontend, and run smoke checks. Record commit/function versions and account for active in-memory rooms before restarting the backend. Existing privacy, support-mailbox and child-safety release gaps remain in `docs/release-privacy-safety.md` and `docs/friends-and-profiles.md`.
+
+
+Password recovery follow-up: see [password recovery](password-recovery.md). The new reset route is verified with the real local inbox and must be added to hosted Auth redirect configuration and checked with hosted email delivery before rollout.

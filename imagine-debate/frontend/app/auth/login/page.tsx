@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/supabaseClient";
+import { LocalAuthNotice } from "@/components/LocalAuthNotice";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -51,7 +52,7 @@ export default function LoginPage() {
 
     const redirectTo =
       typeof window !== "undefined"
-        ? `${window.location.origin}/settings`
+        ? `${window.location.origin}/auth/reset-password`
         : undefined;
 
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(
@@ -86,6 +87,8 @@ export default function LoginPage() {
               Sign in to pick up where you left off.
             </p>
           </div>
+
+          <LocalAuthNotice />
 
           {error && (
             <div
