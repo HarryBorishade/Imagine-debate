@@ -1,0 +1,29 @@
+Pushed — origin/master is now at bd96420. Here's the complete walkthrough. There are actually three separate deployment surfaces beyond the git push (Vercel should redeploy the frontend automatically from the push if it's connected to this repo) — the database, the Edge Functions, and the backend server. All are needed for the new features to actually work live.
+
+1. Database migration (Supabase SQL Editor)
+Go to supabase.com/dashboard → open your Imagine Debate project.
+Left sidebar → SQL Editor → New query.
+Open imagine-debate/supabase/migrations/20260811215436_ratings_security_and_enquiries.sql in your editor, select all, copy it.
+Paste into the SQL Editor and click Run (or Ctrl+Enter).
+It should finish with no errors — it's wrapped in a transaction (begin/commit), so if anything did fail, nothing partial gets left behind.
+Quick sanity check — run this in a new query to confirm the new tables exist:
+
+select table_name from information_schema.tables where table_name in ('profiles', 'enquiries');
+Should return both rows.
+Read the MANUAL REVIEW CHECKLIST comment block at the bottom of the migration file — it's a short list of things I couldn't verify because I can't see your live RLS policies from here (mainly: confirm no old permissive policy on debates/messages is still granting write access I meant to close off).
+2. Edge Functions (judge-debate update + new delete-account)
+Running the SQL does not deploy function code. If you have the Supabase CLI set up:
+
+
+cd imagine-debate
+supabase functions deploy judge-debate
+supabase functions deploy delete-account
+No CLI? Dashboard → Edge Functions → for judge-debate, open it and paste the updated contents of supabase/functions/judge-debate/index.ts; for delete-account, create a new function with that name and paste supabase/functions/delete-account/index.ts. Both need verify_jwt set correctly — judge-debate stays off (false), delete-account must be on (true) — that's already encoded in supabase/config.toml if your deploy process reads it.
+
+3. Backend server (the Socket.IO engine)
+Whatever currently hosts imagine-debate/backend (Render/Railway per your tech stack notes) needs to redeploy from the new master — that's where the elo-on-forfeit, abandoned-room deletion, and draft-on-timeout fixes live. If it auto-deploys from GitHub pushes, this may already be underway.
+
+4. Frontend
+Should auto-deploy via Vercel from the push, if it's connected to this repo the normal way.
+
+Once all four are live, the one thing I genuinely couldn't test from here is a real two-player debate end-to-end — worth running one yourself (bonus: try it on a phone, since that was a big part of the ask). Everything else — every page, the build, the lint, the security review — is verified. GA/support-email/site-URL are safe placeholders whenever you're ready for them.

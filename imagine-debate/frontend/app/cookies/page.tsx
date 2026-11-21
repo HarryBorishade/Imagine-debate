@@ -36,7 +36,7 @@ const STORAGE_ITEMS = [
     purpose:
       "Aggregate, anonymised usage statistics — which pages are visited and how the app is used. Only loaded after you accept.",
     type: "Optional — requires consent",
-    duration: "Up to 2 years (set by Google)",
+    duration: "Depends on analytics configuration and browser settings",
   },
 ];
 

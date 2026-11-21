@@ -62,9 +62,9 @@ export function EnquiryForm() {
       router.push("/contact/thank-you");
     } catch (err: unknown) {
       setError(
-        err instanceof Error
+        err instanceof Error && SITE.supportEmail
           ? `We couldn't send that. Please email ${SITE.supportEmail} instead.`
-          : "Something went wrong. Please try again."
+          : "We couldn't send that. Please try again later."
       );
       setSubmitting(false);
     }

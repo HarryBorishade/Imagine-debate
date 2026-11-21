@@ -1,0 +1,11 @@
+﻿# Cleanup and debate-creation permission hardening
+
+Current release instructions and migration/test status are in [release readiness](release-readiness.md). The earlier local hardening candidates have been reconciled with the five migration records supplied in the owner's 21 November release handover. Their reported production status has not been independently rechecked by this session.
+
+`20261121145724_restrict_debate_cleanup_execute.sql` retains the supplied cleanup permissions SQL. The extra branch-specific scheduler check is preserved as pending `20261121151618_verify_cleanup_scheduler_access.sql`; it changes no grants or schedules and rejects a directly identifiable active pg_cron caller that lacks EXECUTE. A migration role with filtered cron visibility cannot provide complete verification. Direct name matching cannot establish permissions for wrappers or external jobs.
+
+`20261121145848_restrict_debate_room_insert.sql` retains the supplied allowlist for the current creation payload: `id`, `topic`, `description`, `time_per_turn`, `created_by`, `status`, `ranked` and `format_version`. It also checks effective browser write permissions and trusted service UPDATE/DELETE. The recorded mode migration precedes it. Do not reintroduce either superseded draft version as a new pending migration.
+
+Run `backend/tests/run-hardening-postgres.ps1` in a new network-isolated Docker container using the locally available image specified in the script. The suite uses synthetic roles, data, policies and cleanup routines, replays the supplied migration records, checks real effective grants and result transactions, exercises accelerated pg_cron jobs, and runs the social regressions. It does not establish production cleanup behavior or a complete baseline for an empty Supabase project.
+
+The create-page INSERT shape matches the allowlist. Browser roles are rejected for both cleanup RPCs and protected fields. Service privileges are retained. Before release, compare the actual function definitions, object dependencies, schema trust/search-path assumptions, all policies, inherited/column grants and scheduled roles with staging. A locked search path does not make an otherwise untrusted schema safe. No production schema, functions or schedules were changed here.

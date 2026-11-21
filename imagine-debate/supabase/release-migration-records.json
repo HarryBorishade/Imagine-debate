@@ -1,0 +1,39 @@
+{
+  "source": "Supplied release checkout and release handover dated 2026-11-21",
+  "production_status": "Reported applied by the handover; this session has not independently verified remote migration history",
+  "records": [
+    {
+      "version": "20261121145724",
+      "file": "20261121145724_restrict_debate_cleanup_execute.sql",
+      "sha256_lf": "f46f5a4c7f750865147e7a3e84f101ef650f4a5a2e141393c74e071e382b0b70"
+    },
+    {
+      "version": "20261121145818",
+      "file": "20261121145818_debate_modes.sql",
+      "sha256_lf": "1361146b8c65cd6b12e5db6426267be26c567e6aada3e26b6cb91459da002834"
+    },
+    {
+      "version": "20261121145848",
+      "file": "20261121145848_restrict_debate_room_insert.sql",
+      "sha256_lf": "a9303c5314ba41bfe043f5d98aa565ada8d0c7f5af9c70494b38e25117f88a4c"
+    },
+    {
+      "version": "20261121145956",
+      "file": "20261121145956_verify_debate_result_inputs_legacy_forfeits.sql",
+      "sha256_lf": "bf46aa477d79a6036b8068ccc998e4a9956fe947db2b430d231bf605812ac3bc"
+    },
+    {
+      "version": "20261121150056",
+      "file": "20261121150056_restrict_profiles_to_owner_reads.sql",
+      "sha256_lf": "a6c8ae7b380bad01c1a3ab99a1b429d4cc5b22246e96aefef9c9236b535f77a8"
+    }
+  ],
+  "legacy_versions_requiring_remote_reconciliation": [
+    "20260811215436",
+    "20260816120000"
+  ],
+  "pending_versions": [
+    "20261121151618",
+    "20261121152000"
+  ]
+}

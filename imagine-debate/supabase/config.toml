@@ -17,3 +17,9 @@ enabled = true
 verify_jwt = true
 import_map = "./functions/delete-account/deno.json"
 entrypoint = "./functions/delete-account/index.ts"
+
+[functions.submit-report]
+enabled = true
+verify_jwt = true
+import_map = "./functions/submit-report/deno.json"
+entrypoint = "./functions/submit-report/index.ts"

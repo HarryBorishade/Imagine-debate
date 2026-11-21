@@ -18,10 +18,9 @@ export const SITE = {
     "Structured, timed 1-v-1 debate rooms. Create a motion, invite an opponent, and make your case in clean rounds judged for clarity, logic, and rebuttal.",
   url: stripTrailingSlash(RAW_URL),
   // Where debate enquiries and support requests are answered.
-  supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "debateimagine@gmail.com",
-  // Public response-time promise, surfaced on the contact + FAQ pages.
-  responseTimeBusinessDays: 2,
-  responseTimePromise: "We reply to every enquiry within 2 business days.",
+  supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "",
+  // Avoid a fixed response-time promise until support coverage is established.
+  responseTimePromise: "We aim to respond as soon as we can.",
   locale: "en_GB",
 } as const;
 
@@ -63,6 +62,7 @@ export const FOOTER_NAV: ReadonlyArray<{
     heading: "Legal",
     links: [
       { href: "/privacy", label: "Privacy policy" },
+      { href: "/community", label: "Community rules" },
       { href: "/cookies", label: "Cookies" },
     ],
   },

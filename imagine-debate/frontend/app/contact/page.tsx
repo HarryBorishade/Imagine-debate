@@ -36,15 +36,14 @@ export default function ContactPage() {
               <div className="mt-8 space-y-4">
                 <div className="rounded-[var(--radius-lg)] border-t-2 border-accent bg-accent/[0.06] p-5 shadow-[var(--shadow-card)]">
                   <h2 className="text-sm font-semibold text-[#fffaf0]">
-                    Our response-time promise
+                    Contacting us
                   </h2>
                   <p className="mt-1.5 text-sm leading-6 text-muted">
-                    {SITE.responseTimePromise} You&apos;ll always hear back from a
-                    real person.
+                    {SITE.responseTimePromise}
                   </p>
                 </div>
 
-                <div className="card-panel p-5">
+                {SITE.supportEmail && <div className="card-panel p-5">
                   <h2 className="text-sm font-semibold text-[#fffaf0]">
                     Prefer email?
                   </h2>
@@ -58,7 +57,7 @@ export default function ContactPage() {
                     </a>
                     .
                   </p>
-                </div>
+                </div>}
               </div>
             </div>
 

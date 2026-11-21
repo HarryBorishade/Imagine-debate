@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   alternates: { canonical: "/privacy" },
 };
 
-const LAST_UPDATED = "11 August 2026";
+const LAST_UPDATED = "20 November 2026";
 
 function Section({
   id,
@@ -61,8 +61,7 @@ export default function PrivacyPage() {
                 <li>
                   <span className="text-cream">Account details</span> — the email
                   address and username you provide when you sign up. Authentication
-                  is handled by Supabase Auth; we never see or store your raw
-                  password.
+                  is handled by Supabase Auth.
                 </li>
                 <li>
                   <span className="text-cream">Debate content</span> — the motions
@@ -78,8 +77,14 @@ export default function PrivacyPage() {
                   and message you send through the contact form.
                 </li>
                 <li>
+                  <span className="text-cream">Friend connections</span> - your chosen handle and discovery setting, friend requests, friends, blocks and debate invitations.
+                </li>
+                <li>
+                  <span className="text-cream">Reports</span> - the reason you submit, the debate and the accounts involved. Reports may be reviewed to investigate safety concerns.
+                </li>
+                <li>
                   <span className="text-cream">Technical &amp; usage data</span> —
-                  standard server logs and, only if you consent, privacy-respecting
+                  standard server logs and, only if you consent, usage
                   analytics about how the app is used.
                 </li>
               </ul>
@@ -96,7 +101,8 @@ export default function PrivacyPage() {
                   not used by us to train models.
                 </li>
                 <li>To calculate and display your rating and match history.</li>
-                <li>To respond to your enquiries and provide support.</li>
+                <li>To show opted-in handles in exact search, manage friend requests and blocks, and deliver debate invitations inside the app.</li>
+                <li>To respond to enquiries and investigate reports of harmful behaviour.</li>
                 <li>
                   To understand and improve the service through aggregated
                   analytics, where you have consented.
@@ -118,8 +124,7 @@ export default function PrivacyPage() {
 
             <Section id="processors" title="4. Service providers we share data with">
               <p>
-                We use a small number of trusted processors to run {SITE.name}. Each
-                only receives the data needed for its role:
+                The service uses third-party providers to run {SITE.name}, including:
               </p>
               <ul className="list-disc space-y-2 pl-5">
                 <li>
@@ -139,10 +144,15 @@ export default function PrivacyPage() {
                   <span className="text-cream">Google Analytics</span> — usage
                   analytics, loaded only after you accept optional cookies.
                 </li>
+                <li>
+                  <span className="text-cream">Resend</span> - report notification emails, when configured.
+                </li>
+                <li>
+                  <span className="text-cream">Debate server hosting</span> - live debate rooms and activity.
+                </li>
               </ul>
               <p>
-                We do not sell your personal data. Some providers may process data
-                outside your country under appropriate safeguards.
+                Some providers may process data outside your country. Contact us for information about the providers and safeguards used for your data.
               </p>
             </Section>
 
@@ -163,11 +173,7 @@ export default function PrivacyPage() {
 
             <Section id="retention" title="6. Data retention">
               <p>
-                We keep your account data for as long as your account is active.
-                Debate rows and their transcripts are retained for a limited period
-                (around 30 days) to power your dashboard history, after which they
-                may be deleted. Enquiry messages are kept only as long as needed to
-                resolve your request.
+                We retain account data, debate content, reports and enquiries for the purposes described above. Retention can differ for support, safety, legal obligations and backups. Contact us for information about retention or to request deletion. The dashboard display period is not a promise that underlying records have been deleted.
               </p>
             </Section>
 
@@ -188,38 +194,28 @@ export default function PrivacyPage() {
                   </Link>
                   .
                 </li>
-                <li>Delete your account and associated data from settings.</li>
+                <li>Request account deletion from settings. Some records may need separate handling; contact us about associated data.</li>
                 <li>
                   Withdraw analytics consent any time by clearing cookies or
                   updating your choice in the cookie banner.
                 </li>
               </ul>
               <p>
-                To exercise any right, contact us at{" "}
-                <a
-                  href={`mailto:${SITE.supportEmail}`}
-                  className="text-accent underline-offset-4 hover:underline"
-                >
-                  {SITE.supportEmail}
-                </a>
-                .
+                You may also complain to the UK Information Commissioner&apos;s Office or your relevant data protection authority. To exercise a right, use our{" "}
+                <Link href="/contact" className="text-accent underline-offset-4 hover:underline">contact form</Link>
+                {SITE.supportEmail && <> or email <a href={`mailto:${SITE.supportEmail}`} className="text-accent underline-offset-4 hover:underline">{SITE.supportEmail}</a></>}.
               </p>
             </Section>
 
             <Section id="security" title="8. How we protect your data">
               <p>
-                Data is encrypted in transit. Access to the database is restricted
-                by row-level security so users can only reach their own records, and
-                sensitive operations run on the server with privileged keys that are
-                never exposed to the browser.
+                We use access controls and other measures intended to protect personal data. No system can guarantee absolute security.
               </p>
             </Section>
 
             <Section id="children" title="9. Children">
               <p>
-                {SITE.name} is not directed at children under 13, and we do not
-                knowingly collect their personal data. If you believe a child has
-                provided us data, contact us and we will remove it.
+                If you believe a child has provided personal data through {SITE.name}, please contact us so we can investigate and take appropriate action.
               </p>
             </Section>
 
@@ -233,21 +229,10 @@ export default function PrivacyPage() {
 
             <Section id="contact" title="11. Contact us">
               <p>
-                Questions about your privacy? Email{" "}
-                <a
-                  href={`mailto:${SITE.supportEmail}`}
-                  className="text-accent underline-offset-4 hover:underline"
-                >
-                  {SITE.supportEmail}
-                </a>{" "}
-                or use our{" "}
-                <Link
-                  href="/contact"
-                  className="text-accent underline-offset-4 hover:underline"
-                >
-                  contact form
-                </Link>
-                . {SITE.responseTimePromise}
+                Questions about your privacy? Use our{" "}
+                <Link href="/contact" className="text-accent underline-offset-4 hover:underline">contact form</Link>
+                {SITE.supportEmail && <> or email <a href={`mailto:${SITE.supportEmail}`} className="text-accent underline-offset-4 hover:underline">{SITE.supportEmail}</a></>}.
+                {" "}{SITE.responseTimePromise}
               </p>
             </Section>
           </div>

@@ -67,9 +67,11 @@ interface DebateAppraisal {
 
 interface DebateRow {
   topic: string | null;
+  format_version: string;
   appraisal_status: AppraisalStatus;
   appraisal_error: string | null;
   appraisal_result: DebateAppraisal | null;
+  rating_applied: boolean;
   for_player_id: string | null;
   against_player_id: string | null;
   ended_reason: string | null;
@@ -136,7 +138,7 @@ export default function DebateOutcomeWaiting() {
   const isValidDebateId = /^\d{4}$/.test(debateId);
 
   const [debateName, setDebateName] = useState("");
-  const [mySide, setMySide] = useState<DebateSide | null>(null);
+  const [storedSide, setStoredSide] = useState<DebateSide | null>(null);
   const [secondsWaiting, setSecondsWaiting] = useState(0);
   const [appraisalStatus, setAppraisalStatus] =
     useState<AppraisalStatus>(null);
@@ -144,6 +146,8 @@ export default function DebateOutcomeWaiting() {
     useState<DebateAppraisal | null>(null);
   const [judgeError, setJudgeError] = useState("");
   const [judging, setJudging] = useState(false);
+  const [resultFinalized, setResultFinalized] = useState<boolean | null>(null);
+  const [finalizationError, setFinalizationError] = useState("");
   const initialJudgementStarted = useRef(false);
 
   const [myUserId, setMyUserId] = useState<string | null>(null);
@@ -156,6 +160,7 @@ export default function DebateOutcomeWaiting() {
     winningSide: Verdict | null;
   } | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [format, setFormat] = useState("classic_v1");
 
   useEffect(() => {
     if (!isValidDebateId) {
@@ -183,7 +188,7 @@ export default function DebateOutcomeWaiting() {
     }
 
     if (isDebateSide(storedSide)) {
-      setMySide(storedSide);
+      setStoredSide(storedSide);
     }
   }, [debateId, isValidDebateId]);
 
@@ -212,11 +217,8 @@ export default function DebateOutcomeWaiting() {
     return null;
   }, [myUserId, participantIds]);
 
-  useEffect(() => {
-    if (derivedSide) {
-      setMySide(derivedSide);
-    }
-  }, [derivedSide]);
+  const mySide = derivedSide ?? storedSide;
+  const hasSavedJudgement = judgement !== null;
 
   const loadDebateState = useCallback(async (): Promise<DebateRow | null> => {
     if (!isValidDebateId) return null;
@@ -224,7 +226,7 @@ export default function DebateOutcomeWaiting() {
     const { data, error } = await supabase
       .from("debates")
       .select(
-        "topic, appraisal_status, appraisal_error, appraisal_result, for_player_id, against_player_id, ended_reason, winning_side"
+        "topic, format_version, appraisal_status, appraisal_error, appraisal_result, rating_applied, for_player_id, against_player_id, ended_reason, winning_side"
       )
       .eq("id", debateId)
       .maybeSingle();
@@ -242,6 +244,7 @@ export default function DebateOutcomeWaiting() {
     }
 
     const debate = data as DebateRow;
+    setFormat(debate.format_version);
 
     if (debate.topic) {
       setDebateName(debate.topic);
@@ -258,6 +261,8 @@ export default function DebateOutcomeWaiting() {
         : null
     );
 
+    setResultFinalized(typeof debate.rating_applied === "boolean" ? debate.rating_applied : null);
+    if (debate.rating_applied) setFinalizationError("");
     setAppraisalStatus(debate.appraisal_status);
 
     if (
@@ -280,6 +285,7 @@ export default function DebateOutcomeWaiting() {
     if (!isValidDebateId || judging) return;
 
     setJudging(true);
+    setFinalizationError("");
     setJudgeError("");
     setAppraisalStatus("processing");
 
@@ -295,8 +301,9 @@ export default function DebateOutcomeWaiting() {
 
       if (error) {
         const detailedError = await readFunctionError(error);
-        setJudgeError(detailedError);
         await loadDebateState();
+        if (hasSavedJudgement) setFinalizationError(detailedError);
+        else setJudgeError(detailedError);
         return;
       }
 
@@ -316,14 +323,17 @@ export default function DebateOutcomeWaiting() {
       setJudgement(appraisal);
       setAppraisalStatus("completed");
       setJudgeError("");
+      if (typeof data.ratingApplied === "boolean") {
+        setResultFinalized(data.ratingApplied);
+        setFinalizationError(data.ratingApplied ? "" : data.ratingError || "The result could not be saved yet. Please try again.");
+      } else {
+        await loadDebateState();
+      }
     } catch (error) {
-      setJudgeError(
-        error instanceof Error
-          ? error.message
-          : "An unexpected judgement error occurred."
-      );
-
+      const message = error instanceof Error ? error.message : "An unexpected judgement error occurred.";
       await loadDebateState();
+      if (hasSavedJudgement) setFinalizationError(message);
+      else setJudgeError(message);
     } finally {
       setJudging(false);
     }
@@ -331,6 +341,7 @@ export default function DebateOutcomeWaiting() {
     debateId,
     isValidDebateId,
     judging,
+    hasSavedJudgement,
     loadDebateState,
   ]);
 
@@ -522,6 +533,21 @@ export default function DebateOutcomeWaiting() {
                   : judgeError || waitingMessage}
             </p>
 
+            {judgement && !forfeit && resultFinalized === false && (
+              <div role="status" className="mb-8 rounded-2xl border border-amber-400/30 bg-amber-400/5 p-5 text-sm text-amber-200">
+                <p>Your verdict is saved. The result still needs to finish saving.</p>
+                <p className="mt-2 text-muted">Retrying uses the saved verdict.</p>
+                {finalizationError && <p role="alert" className="mt-3">{finalizationError}</p>}
+                <button
+                  onClick={() => { void runJudgement(); }}
+                  disabled={judging}
+                  className="mt-4 rounded-lg bg-accent px-5 py-2 font-semibold text-[#0d1117] disabled:opacity-50"
+                >
+                  {judging ? "Saving result?" : "Retry saving result"}
+                </button>
+              </div>
+            )}
+
             {!judgement && !forfeit && (
               <div className="mb-8 rounded-2xl border border-line bg-black/20 p-5">
                 <div className="mb-4 flex items-center justify-between gap-3 text-sm">
@@ -622,9 +648,6 @@ export default function DebateOutcomeWaiting() {
                       judgement.attempts === 1 ? "pass" : "passes"
                     }`
                   : ""}
-                {judgement.pipeline_version
-                  ? ` · Pipeline ${judgement.pipeline_version}`
-                  : ""}
               </p>
             )}
           </div>
@@ -664,7 +687,7 @@ export default function DebateOutcomeWaiting() {
 
                       {msg.argumentPart && (
                         <span className="text-[10px] uppercase tracking-wide text-muted-2">
-                          {ARGUMENT_PART_LABELS[msg.argumentPart] ?? msg.argumentPart}
+                          {format === "open_exchange_v1" && (msg.argumentPart === "rebuttal" || msg.argumentPart === "counter_rebuttal") ? "Open exchange" : ARGUMENT_PART_LABELS[msg.argumentPart] ?? msg.argumentPart}
                         </span>
                       )}
                     </div>

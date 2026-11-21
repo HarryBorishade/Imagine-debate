@@ -11,6 +11,7 @@ interface DebateFormData {
   topic: string;
   description: string;
   ranked: boolean;
+  format: "classic_v1" | "open_exchange_v1";
   timePerTurn: number;
 }
 
@@ -94,9 +95,11 @@ function CreateDebateContent() {
       topic: preset?.topic ?? "",
       description: preset?.description ?? "",
       ranked: true,
+      format: "classic_v1",
       timePerTurn: 120,
     };
   });
+  const [createdCode, setCreatedCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -104,6 +107,7 @@ function CreateDebateContent() {
     e.preventDefault();
     setError("");
     setLoading(true);
+    let createdDebateId: string | null = null;
 
     try {
       const {
@@ -128,6 +132,7 @@ function CreateDebateContent() {
         topic: formData.topic.trim(),
         description: formData.description.trim() || null,
         ranked: formData.ranked,
+        format_version: formData.format,
         time_per_turn: formData.timePerTurn,
         created_by: session.user.id,
         status: "waiting",
@@ -143,11 +148,27 @@ function CreateDebateContent() {
         return;
       }
 
+      createdDebateId = code;
       trackEvent("debate_created", { ranked: formData.ranked });
+      const invitee = searchParams.get("invite");
+      if (invitee) {
+        const { error: inviteError } = await supabase.rpc("social_send_invite", { p_user_id: invitee, p_debate_id: code });
+        if (inviteError) {
+          setCreatedCode(code);
+          setError("The debate was created, but the friend invitation could not be sent. You can still open the lobby and share its code.");
+          setLoading(false);
+          return;
+        }
+      }
 
       router.push(`/debate/${code}/lobby`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create debate.");
+      if (createdDebateId) {
+        setCreatedCode(createdDebateId);
+        setError("The debate was created, but the invitation could not be sent. Open the lobby to continue.");
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to create debate.");
+      }
       setLoading(false);
     }
   };
@@ -185,10 +206,11 @@ function CreateDebateContent() {
         <form onSubmit={handleSubmit} className="space-y-6">
 
           {error && (
-            <div className="rounded-lg px-4 py-3 border border-against/25 bg-against/10 text-rose-300 text-sm">
-              {error}
+            <div role="alert" className="rounded-lg px-4 py-3 border border-against/25 bg-against/10 text-rose-300 text-sm">
+              {error} {createdCode && <Link className="underline" href={`/debate/${createdCode}/lobby`}>Open lobby</Link>}
             </div>
           )}
+          {searchParams.get("invite") && <p className="rounded-lg border border-line p-3 text-sm text-muted">We will invite your friend after creating the room. Anyone with its room code can still attempt to join.</p>}
 
           {/* Topic */}
           <div className="space-y-1.5">
@@ -227,6 +249,23 @@ function CreateDebateContent() {
             />
           </div>
 
+          <fieldset className="space-y-2">
+            <legend className="block text-sm font-medium text-[#c7c0b3]">Debate mode</legend>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {([
+                { id: "classic_v1", name: "Structured", description: "Seven guided stages per person, from opening to closing. Choose ranked or unranked." },
+                { id: "open_exchange_v1", name: "Open exchange", description: "Four turns each: open, exchange ideas and questions, then close. Unranked." },
+              ] as const).map((option) => (
+                <button key={option.id} type="button" aria-pressed={formData.format === option.id}
+                  onClick={() => setFormData((p) => ({ ...p, format: option.id, ranked: option.id === "open_exchange_v1" ? false : p.ranked }))}
+                  className={`text-left rounded-lg px-4 py-4 border transition-colors ${formData.format === option.id ? "bg-accent/10 border-accent/50 text-cream" : "bg-surface border-line text-muted hover:border-line-strong"}`}>
+                  <span className="block text-sm font-medium mb-0.5">{option.name}</span>
+                  <span className="block text-xs opacity-70 leading-relaxed">{option.description}</span>
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
           {/* Ranked */}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-[#c7c0b3]">
@@ -239,6 +278,8 @@ function CreateDebateContent() {
                   <button
                     key={String(option.id)}
                     type="button"
+                    disabled={formData.format === "open_exchange_v1" && option.id}
+                    aria-pressed={selected}
                     onClick={() =>
                       setFormData((p) => ({
                         ...p,
@@ -260,6 +301,8 @@ function CreateDebateContent() {
               })}
             </div>
           </div>
+
+          {formData.format === "open_exchange_v1" && <p className="text-xs text-muted-2">Open exchange is unranked while we learn how the format works.</p>}
 
           {/* Time per turn */}
           <div className="space-y-2">
@@ -300,7 +343,7 @@ function CreateDebateContent() {
             </Link>
             <button
               type="submit"
-              disabled={!formData.topic.trim() || loading}
+              disabled={!formData.topic.trim() || loading || !!createdCode}
               className="flex-1 rounded-lg px-5 py-3 bg-accent hover:bg-accent-strong disabled:bg-white/10 disabled:text-white/30 disabled:cursor-not-allowed text-[#0d1117] text-sm font-semibold transition-colors"
             >
               {loading ? (
