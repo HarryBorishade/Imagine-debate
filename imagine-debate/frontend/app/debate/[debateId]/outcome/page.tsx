@@ -648,9 +648,6 @@ export default function DebateOutcomeWaiting() {
                       judgement.attempts === 1 ? "pass" : "passes"
                     }`
                   : ""}
-                {judgement.pipeline_version
-                  ? ` · Pipeline ${judgement.pipeline_version}`
-                  : ""}
               </p>
             )}
           </div>
