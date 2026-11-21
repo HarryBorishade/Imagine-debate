@@ -1,5 +1,7 @@
 # Imagine Debate
 
+Start release work with [release readiness](docs/release-readiness.md), which records the reconciled migration history, local test commands and outstanding staging checks.
+
 Imagine Debate is a two-person, real-time debate app with ranked and unranked debates and AI appraisal. The current experience and the new unranked Open exchange mode are documented in [the debate format proposal](docs/debate-format-proposal.md). That document distinguishes current repository behaviour from proposed work and lists database, deployment and testing requirements.
 
 ## Repository map

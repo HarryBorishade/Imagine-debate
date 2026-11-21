@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 type DebateSide = "for" | "against";
 type Verdict = DebateSide | "draw";
@@ -38,6 +38,39 @@ interface JudgeResult {
   };
   confidence: number;
   requires_stronger_review: boolean;
+}
+
+// A saved appraisal and its result transaction can succeed independently. Every
+// cached retry must retry finalization too; the database RPC owns idempotency.
+async function finalizeSavedResult(
+  supabase: SupabaseClient,
+  debateId: string,
+  debate: { for_player_id?: string | null; against_player_id?: string | null; ranked?: boolean | null },
+  winner: unknown,
+): Promise<{ ratingApplied: boolean; ratingError?: string }> {
+  if (!debate.for_player_id || !debate.against_player_id) {
+    return { ratingApplied: false, ratingError: "The saved debate is missing participant IDs." };
+  }
+  if (winner !== "for" && winner !== "against" && winner !== "draw") {
+    return { ratingApplied: false, ratingError: "The saved appraisal has no valid winning side." };
+  }
+  try {
+    const { error } = await supabase.rpc("apply_debate_result", {
+      p_debate_id: debateId,
+      p_for_player_id: debate.for_player_id,
+      p_against_player_id: debate.against_player_id,
+      p_winning_side: winner,
+      p_ended_reason: "ai_judged",
+      // Always use recorded values, including on participant-initiated retries.
+      p_ranked: debate.ranked !== false,
+    });
+    if (error) throw new Error(error.message);
+    return { ratingApplied: true };
+  } catch (error) {
+    console.error(`Failed to finalize saved result for debate ${debateId}:`,
+      error instanceof Error ? error.message : "Unknown result error");
+    return { ratingApplied: false, ratingError: "The verdict was saved, but the result could not be finalized. Please retry." };
+  }
 }
 
 const corsHeaders = {
@@ -559,11 +592,15 @@ serve(async (request: Request): Promise<Response> => {
       debate.appraisal_status === "completed" &&
       debate.appraisal_result
     ) {
+      const resultStatus = await finalizeSavedResult(
+        supabase, debateId, debate, debate.appraisal_result.winner,
+      );
       return jsonResponse({
         success: true,
         cached: true,
         debateId,
         appraisal: debate.appraisal_result,
+        ...resultStatus,
       });
     }
 
@@ -695,44 +732,9 @@ serve(async (request: Request): Promise<Response> => {
       );
     }
 
-    // Apply the rating update. This is a best-effort side effect: the
-    // appraisal itself already succeeded and has been saved above, so a
-    // rating failure is logged, not thrown — the debater should still see
-    // their verdict even if the Elo update needs a retry.
-    let ratingApplied = false;
-    let ratingError: string | undefined;
-
-    if (debate.for_player_id && debate.against_player_id) {
-      const { error: ratingRpcError } = await supabase.rpc(
-        "apply_debate_result",
-        {
-          p_debate_id: debateId,
-          p_for_player_id: debate.for_player_id,
-          p_against_player_id: debate.against_player_id,
-          p_winning_side: finalResult.winner,
-          p_ended_reason: "ai_judged",
-          // Read from the debates row itself, never from the request body —
-          // this function is reachable from any participant's browser, and
-          // a client-supplied `ranked` flag would let a losing player spoof
-          // an unranked result to dodge a rating loss.
-          p_ranked: debate.ranked !== false,
-        },
-      );
-
-      if (ratingRpcError) {
-        ratingError = ratingRpcError.message;
-        console.error(
-          `Failed to apply rating for debate ${debateId}:`,
-          ratingRpcError.message,
-        );
-      } else {
-        ratingApplied = true;
-      }
-    } else {
-      console.warn(
-        `Debate ${debateId} has no participant ids recorded — skipping rating update.`,
-      );
-    }
+    const { ratingApplied, ratingError } = await finalizeSavedResult(
+      supabase, debateId, debate, finalResult.winner,
+    );
 
     return jsonResponse({
       success: true,

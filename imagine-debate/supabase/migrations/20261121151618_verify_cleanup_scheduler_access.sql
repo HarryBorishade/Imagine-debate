@@ -1,37 +1,25 @@
-BEGIN;
+﻿BEGIN;
 SET LOCAL lock_timeout = '5s';
 
-REVOKE EXECUTE ON FUNCTION public.delete_debates_older_than_30_days()
-  FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.cleanup_stale_debates()
-  FROM PUBLIC, anon, authenticated;
-ALTER FUNCTION public.cleanup_stale_debates()
-  SET search_path = pg_catalog, public, pg_temp;
-
+-- Verification only: keep existing schedules, commands and grants unchanged.
+-- Commands may contain credentials, so never include them in error output.
 DO $$
 DECLARE
+  job record;
   routine regprocedure;
+  can_see_all_jobs boolean;
 BEGIN
   FOREACH routine IN ARRAY ARRAY[
     'public.delete_debates_older_than_30_days()'::regprocedure,
     'public.cleanup_stale_debates()'::regprocedure
   ] LOOP
     IF has_function_privilege('anon', routine, 'EXECUTE')
-        OR has_function_privilege('authenticated', routine, 'EXECUTE')
-        OR NOT has_function_privilege('postgres', routine, 'EXECUTE') THEN
+       OR has_function_privilege('authenticated', routine, 'EXECUTE')
+       OR NOT has_function_privilege('postgres', routine, 'EXECUTE') THEN
       RAISE EXCEPTION 'Unexpected effective cleanup permissions for %', routine;
     END IF;
   END LOOP;
-END;
-$$;
--- Existing direct pg_cron callers must keep their effective permissions. Do not
--- print job commands: they may contain credentials. Indirect or external jobs
--- still require an operational inventory before deployment.
-DO $$
-DECLARE
-  job record;
-  can_see_all_jobs boolean;
-BEGIN
+
   IF to_regclass('cron.job') IS NOT NULL THEN
     SELECT r.rolsuper OR r.rolbypassrls OR NOT c.relrowsecurity
       INTO can_see_all_jobs

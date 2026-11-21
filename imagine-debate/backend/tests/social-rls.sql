@@ -1,7 +1,7 @@
 -- Synthetic security tests: run only in a disposable local database after fixture and migration.
 create function pg_temp.expect_failure(statement text) returns void language plpgsql as $$
 begin
-  begin execute statement; exception when others then return; end;
+  begin execute statement; exception when insufficient_privilege or raise_exception then return; end;
   raise exception 'Expected statement to be rejected';
 end $$;
 
@@ -56,6 +56,15 @@ select pg_temp.expect_failure(format('select public.social_open_invite(%L::uuid)
 do $$ begin
   if exists(select 1 from public.social_connections()) then raise exception 'Block left a friendship'; end if;
   if (select count(*) from public.social_blocked_users()) <> 1 then raise exception 'Block list unavailable'; end if;
+end $$;
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',false);
+select public.social_set_profile('Alpha',false);
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000002',false);
+do $$ begin
+  if not exists (
+    select 1 from public.social_blocked_users()
+    where user_id = '00000000-0000-0000-0000-000000000001' and handle = 'Blocked player'
+  ) then raise exception 'Block list revealed a private handle or dropped the block'; end if;
 end $$;
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',false);
 do $$ begin if exists(select 1 from public.social_search('Beta')) then raise exception 'Blocked profile visible'; end if; end $$;

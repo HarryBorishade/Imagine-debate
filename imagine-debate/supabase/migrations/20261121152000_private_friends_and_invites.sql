@@ -177,7 +177,10 @@ begin
 end $$;
 create function public.social_blocked_users() returns table(user_id uuid,handle text)
 language sql stable security definer set search_path = pg_catalog, public as $$
- select b.blocked_id,coalesce(p.handle,'Former player') from public.social_blocks b left join public.social_profiles p on p.user_id=b.blocked_id where b.blocker_id=auth.uid();
+ select b.blocked_id, coalesce(p.handle, 'Blocked player')
+ from public.social_blocks b
+ left join public.social_profiles p on p.user_id = b.blocked_id and p.discoverable
+ where b.blocker_id = auth.uid();
 $$;
 create function public.social_send_invite(p_user_id uuid,p_debate_id text) returns void
 language plpgsql security definer set search_path = pg_catalog, public as $$

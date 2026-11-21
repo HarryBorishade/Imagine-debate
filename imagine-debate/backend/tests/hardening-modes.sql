@@ -1,4 +1,9 @@
-﻿SET ROLE authenticated;
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM public.debates WHERE id='9000' AND format_version='classic_v1') THEN
+  RAISE EXCEPTION 'Legacy debate did not retain Classic rules';
+ END IF;
+END $$;
+SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',false);
 INSERT INTO public.debates(id,topic,description,ranked,format_version,time_per_turn,created_by,status)
 VALUES ('1234','A classic topic',NULL,true,'classic_v1',120,'00000000-0000-0000-0000-000000000001','waiting');

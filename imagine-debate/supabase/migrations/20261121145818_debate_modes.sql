@@ -1,4 +1,6 @@
-﻿begin;
+begin;
+set local lock_timeout = '5s';
+set local statement_timeout = '30s';
 
 -- Existing debates keep their original rules. The pilot cannot affect ratings,
 -- including when a client bypasses the create screen.

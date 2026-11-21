@@ -1,5 +1,7 @@
 ﻿# Debate reliability: research and handover
 
+Historical work report. Current release migration reconciliation, result-retry recovery and checks are recorded in [release readiness](imagine-debate/docs/release-readiness.md).
+
 Prepared locally on 20 November 2026. No changes were deployed, pushed, or applied to Supabase. The backup is of the project checkout, not a Supabase database backup.
 
 ## Recovery and workspace
